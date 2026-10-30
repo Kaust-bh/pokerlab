@@ -1,0 +1,30 @@
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Testing
+.pytest_cache/
+
+# IDE and OS
+.DS_Store
+.vscode/
+.idea/
+
+# Generated data
+results/*
+!results/.gitkeep
+models/*
+!models/.gitkeep
+
+# Generated package metadata
+*.egg-info/
+
+# Python cache
+__pycache__/
+*.py[cod]
