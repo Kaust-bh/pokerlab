@@ -13,6 +13,9 @@ dependencies = [
     "plotly>=5.20",
 ]
 
+[project.scripts]
+pokerlab-benchmark = "pokerlab.benchmark_cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
