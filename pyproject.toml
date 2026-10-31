@@ -15,11 +15,17 @@ dependencies = [
 
 [project.scripts]
 pokerlab-benchmark = "pokerlab.benchmark_cli:main"
+pokerlab-nlhe-mccfr = "pokerlab.research.nlhe.experiments:main"
+pokerlab-deep-cfr = "pokerlab.algorithms.deep_cfr.experiments:main"
+pokerlab-deep-cfr-study = "pokerlab.algorithms.deep_cfr.study:main"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
+]
+deep-cfr = [
+    "torch>=2.2",
 ]
 
 [tool.setuptools.packages.find]
@@ -28,6 +34,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = ["--import-mode=importlib"]
 
 [tool.ruff]
 line-length = 88

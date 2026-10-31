@@ -1,4 +1,4 @@
-"""Poker research algorithms."""
+"""PokerLab research algorithms."""
 
 from pokerlab.algorithms.monte_carlo import EquityEstimate, estimate_equity
 

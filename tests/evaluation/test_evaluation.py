@@ -41,8 +41,7 @@ def test_all_in_agent_match_settles_and_exports_match_metrics(tmp_path) -> None:
             return next(
                 action
                 for action in observation.legal_actions
-                if action.type
-                in (ActionType.ALL_IN, ActionType.CALL, ActionType.CHECK)
+                if action.type in (ActionType.ALL_IN, ActionType.CALL, ActionType.CHECK)
             )
 
     simulator = TournamentSimulator()

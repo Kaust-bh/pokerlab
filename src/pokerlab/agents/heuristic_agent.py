@@ -90,6 +90,14 @@ class HeuristicAgent(Agent):
             (action for action in actions if action.type == kind), None
         )
         if observation.to_call:
+            recent_pressure = sum(
+                record.player != observation.player
+                and record.street == observation.street
+                and record.action.type
+                in (ActionType.BET, ActionType.RAISE, ActionType.ALL_IN)
+                for record in observation.history
+            )
+            decision_strength = max(0.0, decision_strength - 0.04 * recent_pressure)
             call_cost = observation.to_call / max(1, observation.effective_stack)
             required = observation.pot_odds + self.config.call_margin
             if decision_strength >= self.config.strong_raise_strength:

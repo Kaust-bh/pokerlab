@@ -77,11 +77,13 @@ def test_observation_hides_opponent_hole_cards_and_has_legal_actions() -> None:
     assert view.legal_actions
 
 
-def test_big_blind_can_check_after_preflop_call_but_cannot_open_bet() -> None:
+def test_big_blind_can_check_or_raise_after_preflop_call() -> None:
     game = GameState({"hero": 100, "villain": 100}, deck=Deck(seed=8))
     game.act(ActionType.CALL, player="hero")
     view = observe(game, "villain")
-    assert view.legal_actions == (Action(ActionType.CHECK),)
+    assert Action(ActionType.CHECK) in view.legal_actions
+    assert any(action.type == ActionType.RAISE for action in view.legal_actions)
+    assert not any(action.type == ActionType.BET for action in view.legal_actions)
 
 
 def test_heuristic_folds_weak_holding_to_large_price() -> None:
