@@ -21,3 +21,10 @@ class RandomAgent(Agent):
         if not observation.legal_actions:
             raise ValueError("no legal actions are available")
         return self._rng.choice(observation.legal_actions)
+
+    def action_probabilities(self, observation: Observation) -> dict[Action, float]:
+        legal = observation.legal_actions
+        if not legal:
+            raise ValueError("no legal actions are available")
+        prob = 1.0 / len(legal)
+        return {action: prob for action in legal}

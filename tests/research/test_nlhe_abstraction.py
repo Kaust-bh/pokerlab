@@ -488,3 +488,254 @@ def test_opponent_sampling_regrets_match_exact_fixed_profile_expectation():
     # over seven standard errors, leaving room for this fixed-seed realization.
     assert mean[own_actions[0]] == pytest.approx(expected[own_actions[0]], abs=0.08)
     assert mean[own_actions[1]] == pytest.approx(expected[own_actions[1]], abs=0.08)
+
+
+def test_reach_weighted_average_strategy_matches_exact_own_reach_on_small_tree():
+    """Validate derived reach_weighted estimator against exact sequence-form own-reach.
+
+    Tree structure:
+    - Chance deals outcome z in {0, 1} with p_c = (0.3, 0.7).
+    - Player 0 (root info I0) chooses a0 in {CHECK, BET_POT}.
+    - After BET_POT, Player 1 (info I1_z depending on z) chooses a1 in {CALL, RAISE_POT}.
+    - After RAISE_POT, Player 0 reaches child info I2 (shared across z) and chooses
+      a2 in {CALL, FOLD}.
+
+    Across two iterations t=1, 2:
+    - Iteration 1:
+      sigma_0^1(I0, BET_POT) = 0.8, sigma_0^1(I2) = {CALL: 0.9, FOLD: 0.1}
+      sigma_1^1(I1_0, RAISE_POT) = 0.1, sigma_1^1(I1_1, RAISE_POT) = 0.1
+    - Iteration 2:
+      sigma_0^2(I0, BET_POT) = 0.4, sigma_0^2(I2) = {CALL: 0.2, FOLD: 0.8}
+      sigma_1^2(I1_0, RAISE_POT) = 0.9, sigma_1^2(I1_1, RAISE_POT) = 0.9
+
+    Exact sequence-form own-reach accumulation at I2:
+      Iteration 1 own reach: pi_0^1(I2) = 0.8 -> mass {CALL: 0.72, FOLD: 0.08}
+      Iteration 2 own reach: pi_0^2(I2) = 0.4 -> mass {CALL: 0.08, FOLD: 0.32}
+      Total own-reach mass: {CALL: 0.80, FOLD: 0.40} -> normalized {CALL: 2/3, FOLD: 1/3}.
+    (Note: A biased full-reach estimator weighting by pi_{-i}^t would weight Iteration 1
+    by 0.8*0.1=0.08 and Iteration 2 by 0.4*0.9=0.36, yielding CALL = (0.072+0.072)/0.44 = 0.327
+    instead of 2/3 = 0.667!)
+    """
+    from pokerlab.research.nlhe.information_set import HUNLInformationSet
+    from pokerlab.research.nlhe.mccfr import average_strategy_reach_weight
+
+    a_root = (AbstractAction.CHECK, AbstractAction.BET_POT)
+    a_opp = (AbstractAction.CALL, AbstractAction.RAISE_POT)
+    a_leaf = (AbstractAction.CALL, AbstractAction.FOLD)
+
+    info_root = HUNLInformationSet(
+        0, "preflop", "AA|preflop", (), 3, 20, (1, 2), (), a_root
+    )
+    info_opp_0 = HUNLInformationSet(
+        1, "preflop", "KK|preflop", (), 6, 20, (4, 2), (), a_opp
+    )
+    info_opp_1 = HUNLInformationSet(
+        1, "preflop", "QQ|preflop", (), 6, 20, (4, 2), (), a_opp
+    )
+    info_leaf = HUNLInformationSet(
+        0, "preflop", "AA|preflop", (), 12, 20, (4, 8), (), a_leaf
+    )
+
+    profiles = (
+        {
+            info_root: {AbstractAction.CHECK: 0.2, AbstractAction.BET_POT: 0.8},
+            info_opp_0: {AbstractAction.CALL: 0.9, AbstractAction.RAISE_POT: 0.1},
+            info_opp_1: {AbstractAction.CALL: 0.9, AbstractAction.RAISE_POT: 0.1},
+            info_leaf: {AbstractAction.CALL: 0.9, AbstractAction.FOLD: 0.1},
+        },
+        {
+            info_root: {AbstractAction.CHECK: 0.6, AbstractAction.BET_POT: 0.4},
+            info_opp_0: {AbstractAction.CALL: 0.1, AbstractAction.RAISE_POT: 0.9},
+            info_opp_1: {AbstractAction.CALL: 0.1, AbstractAction.RAISE_POT: 0.9},
+            info_leaf: {AbstractAction.CALL: 0.2, AbstractAction.FOLD: 0.8},
+        },
+    )
+    chance_probs = ((info_opp_0, 0.3), (info_opp_1, 0.7))
+
+    # 1. Exact analytical expectation of average_strategy_reach_weight over chance & uniform q_{-i}
+    analytical_mass = {AbstractAction.CALL: 0.0, AbstractAction.FOLD: 0.0}
+    for prof in profiles:
+        own_reach = prof[info_root][AbstractAction.BET_POT]
+        for _opp_info, p_c in chance_probs:
+            q_opp = 0.5  # uniform proposal over 2 opponent actions
+            visit_prob = p_c * q_opp
+            w = average_strategy_reach_weight(own_reach, q_opp)
+            for act in a_leaf:
+                analytical_mass[act] += visit_prob * w * prof[info_leaf][act]
+
+    norm_analytical = {
+        act: analytical_mass[act] / sum(analytical_mass.values()) for act in a_leaf
+    }
+    assert norm_analytical[AbstractAction.CALL] == pytest.approx(2.0 / 3.0, abs=1e-12)
+    assert norm_analytical[AbstractAction.FOLD] == pytest.approx(1.0 / 3.0, abs=1e-12)
+
+    # 2. Validate production _average_traverse Monte Carlo convergence on the same tree
+    solver = ExternalSamplingMCCFR(
+        HUNLMCCFRConfig(
+            iterations=1,
+            seed=42,
+            game=HUNLGameConfig(average_strategy_mode="reach_weighted"),
+        )
+    )
+
+    def make_tree(opp_info):
+        leaf_node = _ToyState(
+            info_leaf,
+            player=0,
+            transitions={
+                AbstractAction.CALL: _ToyState(info_leaf, payoff=1.0),
+                AbstractAction.FOLD: _ToyState(info_leaf, payoff=-1.0),
+            },
+        )
+        opp_node = _ToyState(
+            opp_info,
+            player=1,
+            transitions={
+                AbstractAction.CALL: _ToyState(opp_info, payoff=0.0),
+                AbstractAction.RAISE_POT: leaf_node,
+            },
+        )
+        return _ToyState(
+            info_root,
+            player=0,
+            transitions={
+                AbstractAction.CHECK: _ToyState(info_root, payoff=0.0),
+                AbstractAction.BET_POT: opp_node,
+            },
+        )
+
+    mc_delta: dict = {}
+    trials = 6_000
+    for _ in range(trials):
+        opp_info = info_opp_0 if solver.rng.random() < 0.3 else info_opp_1
+        tree = make_tree(opp_info)
+        for prof in profiles:
+            solver._average_traverse(tree, 0, prof.copy(), mc_delta, 1.0, 1.0, [0])
+
+    mc_leaf = mc_delta[info_leaf]
+    mc_norm = {act: mc_leaf[act] / sum(mc_leaf.values()) for act in a_leaf}
+    assert mc_norm[AbstractAction.CALL] == pytest.approx(2.0 / 3.0, abs=0.015)
+    assert mc_norm[AbstractAction.FOLD] == pytest.approx(1.0 / 3.0, abs=0.015)
+
+
+def test_all_24_suit_permutations_and_street_order_invariance():
+    from itertools import permutations
+
+    from pokerlab.research.nlhe.abstraction import SUITS
+    from pokerlab.research.nlhe.information_set import canonicalize_board_representation
+
+    base_hole_suited = (Card(14, "spades"), Card(13, "spades"))
+    base_hole_pair = (Card(14, "clubs"), Card(14, "spades"))
+    base_board = (
+        Card(10, "clubs"),
+        Card(8, "spades"),
+        Card(2, "diamonds"),
+        Card(5, "hearts"),
+    )
+
+    for method in ("sampled_strength", "sampled_equity"):
+        cfg = HUNLGameConfig(
+            postflop_method=method,
+            postflop_buckets=12,
+            opponent_hand_samples=16,
+            equity_samples=16,
+            board_abstraction="isomorphic",
+        )
+        for base_hole in (base_hole_suited, base_hole_pair):
+            ref_bucket = private_hand_bucket(base_hole, base_board, cfg)
+            ref_board = canonicalize_board_representation(
+                base_board, mode="isomorphic", hole_cards=base_hole
+            )
+            for perm in permutations(SUITS):
+                suit_map = dict(zip(SUITS, perm, strict=True))
+                perm_hole = tuple(Card(c.rank, suit_map[c.suit]) for c in base_hole)
+                perm_board = tuple(Card(c.rank, suit_map[c.suit]) for c in base_board)
+                assert private_hand_bucket(perm_hole, perm_board, cfg) == ref_bucket
+                assert (
+                    canonicalize_board_representation(
+                        perm_board, mode="isomorphic", hole_cards=perm_hole
+                    )
+                    == ref_board
+                )
+
+    # Street order: Flop (2c 3d 4h) + Turn (As) != Flop (As 4h 3d) + Turn (2c)
+    board_a = (
+        Card(2, "clubs"),
+        Card(3, "diamonds"),
+        Card(4, "hearts"),
+        Card(14, "spades"),
+    )
+    board_b = (
+        Card(14, "spades"),
+        Card(4, "hearts"),
+        Card(3, "diamonds"),
+        Card(2, "clubs"),
+    )
+    assert canonicalize_board_representation(
+        board_a, mode="isomorphic"
+    ) != canonicalize_board_representation(board_b, mode="isomorphic")
+
+    # Private-to-public suit relation: Ac Kc on Qc 7d 2h vs Ah Kh on Qc 7d 2s
+    flop = (Card(12, "clubs"), Card(7, "diamonds"), Card(2, "hearts"))
+    flop_alt = (Card(12, "clubs"), Card(7, "diamonds"), Card(2, "spades"))
+    iso_with_flush_blocker = canonicalize_board_representation(
+        flop, mode="isomorphic", hole_cards=(Card(14, "clubs"), Card(13, "clubs"))
+    )
+    iso_without_flush_blocker = canonicalize_board_representation(
+        flop_alt, mode="isomorphic", hole_cards=(Card(14, "hearts"), Card(13, "hearts"))
+    )
+    assert iso_with_flush_blocker != iso_without_flush_blocker
+
+
+def test_card_aware_tactical_fallback_and_lookup_telemetry():
+    from pokerlab.agents.base import Action, Observation
+    from pokerlab.research.nlhe.agent import AbstractHUNLAgent
+
+    cfg = HUNLGameConfig(postflop_method="sampled_equity", postflop_buckets=20)
+    agent = AbstractHUNLAgent({}, cfg, seed=1)
+
+    dry_board = (
+        Card(13, "spades"),
+        Card(12, "hearts"),
+        Card(11, "diamonds"),
+        Card(9, "clubs"),
+        Card(4, "spades"),
+    )
+    # 1. 7-2 offsuit facing a half-pot bet (pot=20, to_call=10 -> pot_odds=0.333) must FOLD
+    weak_obs = Observation(
+        player="p0",
+        hole_cards=(Card(7, "clubs"), Card(2, "diamonds")),
+        community_cards=dry_board,
+        street="river",
+        in_position=True,
+        stack=100,
+        opponent_stack=100,
+        pot=20,
+        to_call=10,
+        big_blind=2,
+        min_raise=10,
+        legal_actions=(
+            Action(ActionType.FOLD),
+            Action(ActionType.CALL),
+            Action(ActionType.ALL_IN),
+        ),
+        street_contribution=0,
+        opponent_street_contribution=10,
+        is_button=True,
+    )
+    assert agent.act(weak_obs) == Action(ActionType.FOLD)
+
+    # 2. Nut straight (Ace-Ten) facing a pot-sized bet (pot=40, to_call=20 -> pot_odds=0.333 or pot=20, to_call=20 -> pot_odds=0.50) must NOT fold
+    nut_obs = replace(
+        weak_obs,
+        hole_cards=(Card(14, "clubs"), Card(10, "diamonds")),
+        pot=20,
+        to_call=20,
+        opponent_street_contribution=20,
+    )
+    assert agent.act(nut_obs) == Action(ActionType.CALL)
+
+    rates = agent.lookup_rates()
+    assert rates["decisions"] == 2
+    assert rates["fallback_hits"] == 2
+    assert rates["fallback_rate"] == 1.0

@@ -126,6 +126,15 @@ def summarize_matches(rows: list[dict]) -> list[dict]:
                 "mean_trained_seconds_per_decision": mean(
                     float(row["trained_seconds_per_decision"]) for row in group
                 ),
+                "mean_exact_lookup_rate": mean(
+                    float(row.get("exact_lookup_rate", 0.0)) for row in group
+                ),
+                "mean_generalized_lookup_rate": mean(
+                    float(row.get("generalized_lookup_rate", 0.0)) for row in group
+                ),
+                "mean_fallback_lookup_rate": mean(
+                    float(row.get("fallback_lookup_rate", 0.0)) for row in group
+                ),
             }
         )
     return summaries

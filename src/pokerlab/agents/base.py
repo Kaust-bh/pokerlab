@@ -231,6 +231,20 @@ class Agent(ABC):
     def act(self, observation: Observation) -> Action:
         """Choose an action from the supplied legal action set."""
 
+    def action_probabilities(self, observation: Observation) -> dict[Action, float]:
+        """Return action distribution without mutating agent RNG state."""
+        legal = observation.legal_actions
+        if not legal:
+            return {}
+        rng = getattr(self, "rng", None) or getattr(self, "_rng", None)
+        state = rng.getstate() if rng is not None else None
+        try:
+            chosen = self.act(observation)
+        finally:
+            if rng is not None and state is not None:
+                rng.setstate(state)
+        return {action: (1.0 if action == chosen else 0.0) for action in legal}
+
     def reset(self, seed: int | None = None) -> None:
         """Reset private random state before an independent match, if applicable."""
 

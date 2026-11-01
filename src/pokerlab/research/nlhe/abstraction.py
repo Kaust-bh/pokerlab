@@ -200,18 +200,45 @@ def _sampled_equity_features(
     return hero_category, equity_bucket, flush_code, straight_bucket, texture
 
 
+def _suit_signature(
+    suit: str, hole: tuple[Card, ...], board: tuple[Card, ...]
+) -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...], tuple[int, ...]]:
+    """Return a suit-name-independent and flop-order-independent rank signature."""
+    return (
+        tuple(sorted((c.rank for c in hole if c.suit == suit), reverse=True)),
+        tuple(sorted((c.rank for c in board[:3] if c.suit == suit), reverse=True)),
+        tuple(c.rank for c in board[3:4] if c.suit == suit),
+        tuple(c.rank for c in board[4:5] if c.suit == suit),
+    )
+
+
 def _canonicalize_suits(
     hole: tuple[Card, Card], board: tuple[Card, ...]
 ) -> tuple[tuple[Card, Card], tuple[Card, ...]]:
-    """Canonicalize global suit labels, preserving all rank/suit relations."""
-    mapping: dict[str, str] = {}
-    ordered = (*hole, *board)
-    for card in ordered:
-        if card.suit not in mapping:
-            mapping[card.suit] = SUITS[len(mapping)]
-    converted_hole = tuple(Card(card.rank, mapping[card.suit]) for card in hole)
-    converted_board = tuple(Card(card.rank, mapping[card.suit]) for card in board)
-    return tuple(sorted(converted_hole)), converted_board
+    """Canonicalize global suit labels and flop order, preserving street boundaries."""
+    present_suits: list[str] = []
+    for card in (*hole, *board):
+        if card.suit not in present_suits:
+            present_suits.append(card.suit)
+    present_suits.sort(
+        key=lambda s: _suit_signature(s, hole, board),
+        reverse=True,
+    )
+    mapping = {suit: SUITS[idx] for idx, suit in enumerate(present_suits)}
+    converted_hole = tuple(
+        sorted(
+            (Card(card.rank, mapping[card.suit]) for card in hole),
+            key=lambda c: (c.rank, SUIT_INDEX[c.suit]),
+        )
+    )
+    flop = tuple(
+        sorted(
+            (Card(card.rank, mapping[card.suit]) for card in board[:3]),
+            key=lambda c: (-c.rank, SUIT_INDEX[c.suit]),
+        )
+    )
+    turn_river = tuple(Card(card.rank, mapping[card.suit]) for card in board[3:])
+    return converted_hole, (*flop, *turn_river)
 
 
 def private_hand_bucket(
@@ -223,18 +250,16 @@ def private_hand_bucket(
 
     The preflop class is retained postflop to preserve the player's own
     information and action history (perfect recall) under abstraction.
+    Both postflop methods canonicalize suits and flop card order first so
+    that private buckets are strictly invariant under all 24 suit permutations.
     """
     starting_class = preflop_class(hole_cards)
     if not board:
         return f"{starting_class}|preflop"
-    canonical_hole = tuple(sorted(hole_cards))
-    canonical_board = tuple(board[:3])
-    if len(board) > 3:
-        canonical_board += tuple(board[3:])
+    canonical_hole, canonical_board = _canonicalize_suits(
+        tuple(hole_cards), tuple(board)
+    )
     if config.postflop_method == "sampled_equity":
-        canonical_hole, canonical_board = _canonicalize_suits(
-            canonical_hole, canonical_board
-        )
         category, equity, flush_code, straight_draw, texture = _sampled_equity_features(
             canonical_hole,
             canonical_board,

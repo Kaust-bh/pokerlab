@@ -104,6 +104,10 @@ def test_benchmark_estimate_and_smoke_run_write_complete_artifacts(tmp_path: Pat
     assert (run_dir / "training.csv").exists()
     assert (run_dir / "evaluation.csv").exists()
     assert (run_dir / "summary.json").exists()
+    summary_payload = json.loads((run_dir / "summary.json").read_text())
+    manifest_payload = json.loads((run_dir / "manifest.json").read_text())
+    assert summary_payload["source_revision"] != "unavailable"
+    assert summary_payload["source_revision"] == manifest_payload["git_head"]
     assert len(list((run_dir / "checkpoints").rglob("strategy.json"))) == 1
 
     checkpoint = next((run_dir / "checkpoints").rglob("checkpoint.json"))
@@ -116,3 +120,75 @@ def test_benchmark_estimate_and_smoke_run_write_complete_artifacts(tmp_path: Pat
     assert resumed != run_dir
     assert json.loads((resumed / "summary.json").read_text())["resume_checkpoint"]
     assert len(list((resumed / "checkpoints").rglob("strategy.json"))) == 2
+
+
+def test_abstraction_variants_produce_distinct_policies_and_record_lookup_rates(
+    tmp_path: Path,
+):
+    import csv
+
+    plan = BenchmarkPlan(
+        seeds=(11,),
+        iterations=8,
+        checkpoints=(8,),
+        evaluation_hands=6,
+        stack_bb=6,
+        equity_samples=6,
+        equity_agent_simulations=4,
+    )
+    variants = ("baseline", "equity_20", "action_wide", "isomorphic")
+    run_dir = run_benchmark(
+        plan,
+        variants=variants,
+        output_root=tmp_path,
+    )
+    with (run_dir / "evaluation.csv").open() as handle:
+        eval_rows = list(csv.DictReader(handle))
+    assert eval_rows
+    for row in eval_rows:
+        total_rate = (
+            float(row["exact_lookup_rate"])
+            + float(row["generalized_lookup_rate"])
+            + float(row["fallback_lookup_rate"])
+        )
+        assert total_rate == pytest.approx(1.0)
+        total_hits = (
+            int(row["exact_hits"])
+            + int(row["generalized_hits"])
+            + int(row["fallback_hits"])
+        )
+        assert total_hits > 0
+
+    with (run_dir / "summary.csv").open() as handle:
+        summary_rows = list(csv.DictReader(handle))
+    assert summary_rows
+    for row in summary_rows:
+        total_rate = (
+            float(row["mean_exact_lookup_rate"])
+            + float(row["mean_generalized_lookup_rate"])
+            + float(row["mean_fallback_lookup_rate"])
+        )
+        assert total_rate == pytest.approx(1.0)
+
+    # Verify that trained strategy profiles across variants are genuinely distinct
+    strategy_payloads = {}
+    for variant in variants:
+        strat_path = (
+            run_dir
+            / "checkpoints"
+            / variant
+            / "seed-11"
+            / "iteration-000008"
+            / "strategy.json"
+        )
+        payload = json.loads(strat_path.read_text())
+        strategy_payloads[variant] = {
+            json.dumps(entry["info"], sort_keys=True): entry["strategy"]
+            for entry in payload["information_sets"]
+        }
+
+    # Information set keys and/or probability distributions must differ across variants
+    assert strategy_payloads["baseline"] != strategy_payloads["equity_20"]
+    assert strategy_payloads["baseline"] != strategy_payloads["action_wide"]
+    assert strategy_payloads["baseline"] != strategy_payloads["isomorphic"]
+    assert strategy_payloads["equity_20"] != strategy_payloads["isomorphic"]

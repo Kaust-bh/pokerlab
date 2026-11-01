@@ -305,3 +305,44 @@ diagnostics, plots, and hash manifests under a new `results/deep_cfr/study-*`
 directory. See `docs/phase6b_deep_cfr_evaluation.md` before increasing budgets;
 the measured Deep CFR policies remain substantially more exploitable than
 tabular references at the tested checkpoints.
+
+### Phase 7: HUNL solver validation, generalization, and Local Best Response
+
+Phase 7 resolves four methodological issues in the abstracted HUNL stack:
+
+1. **MCCFR average-strategy estimator (`src/pokerlab/research/nlhe/mccfr.py`)**:
+   In `reach_weighted` mode, `_average_traverse` samples opponent actions from
+   $q_{-i}(a \mid h) = 1 / |A(h)|$ and weights traverser strategy increments by
+   `average_strategy_reach_weight(own_reach, opponent_proposal_reach)` =
+   $\pi_i(h) / q_{-i}(h)$. Because the chance prior $C(I) = \sum_{h \in I} p_c(h)$
+   factors out of each information set $I$, normalized cumulative strategy sums
+   recover the exact sequence-form average strategy without opponent-reach bias
+   or $1 / p_c(h)$ weight explosion.
+2. **Suit isomorphism and postflop regret sharing (`abstraction.py`, `information_set.py`)**:
+   `_suit_signature` canonicalizes suits jointly across `(hole_cards, board)`
+   and sorts flop cards while keeping turn and river order intact. During
+   training, `_abstract_regrets` pools postflop regrets by
+   `postflop_abstraction_key(board_mode)` so distinct deals share postflop
+   experience, while `regret_delta` is applied before `_average_traverse`.
+3. **Hierarchical policy generalization and lookup telemetry (`agent.py`, `benchmark.py`)**:
+   `AbstractHUNLAgent` weights generalized candidate information sets by
+   checkpoint `strategy_sums`, replaces uniform/blind fallback with a
+   bucket-strength-aware `_tactical_fallback`, and exports `exact_hits`,
+   `generalized_hits`, `fallback_hits`, and their rates to `evaluation.csv` and
+   `summary.csv`.
+4. **Local Best Response (`src/pokerlab/evaluation/lbr.py`)**:
+   `BayesianRangeTracker` updates posterior hand weights using non-mutating
+   `agent.action_probabilities(obs)`. `candidate_action_evs` accounts for sunk
+   versus incremental street contributions, effective stack caps, uncallable
+   overbet return, and opponent fold/call/raise probabilities. `evaluate_lbr_kuhn`
+   and `evaluate_lbr_leduc` are validated independently against exact best
+   responses. `evaluate_lbr_hunl` is documented explicitly as a finite-sample
+   1-step Monte Carlo tactical probe rather than an exact global lower bound.
+
+The 6-variant, 4-seed, 50-iteration benchmark is recorded under
+`results/nlhe_abstraction/run-20261101T220341Z-6f72de15/` (`1,200` training
+iterations, `528` evaluation batches, `52,800` hands). At iteration 50, learned
+policy coverage (`exact + generalized`) reached 64.1%–79.2% across variants
+(79.2% for `equity_8`, 72.1% for `isomorphic`, 71.9% for `equity_20`, 70.4% for
+`baseline`). See `docs/phase7_hunl_validation.md` for full derivations, tables,
+and limitations.

@@ -286,3 +286,45 @@ against vanilla CFR, CFR+, and DCFR using exact exploitability. See
 seed-level results, confidence intervals, strategy distances, runtime,
 memory measurements, provenance notes, and limitations. No HUNL Deep CFR
 training is included.
+
+## Phase 7: HUNL solver validation, generalization, and Local Best Response
+
+Phase 7 corrects and validates the abstracted HUNL MCCFR solver, postflop
+abstraction generalization, and Local Best Response (LBR) evaluation:
+
+- **Unbiased own-reach average-strategy accumulation (`reach_weighted`)**:
+  `ExternalSamplingMCCFR._average_traverse` samples opponent decisions from a
+  uniform full-support proposal $q_{-i}(a \mid h) = 1 / |A(h)|$ and weights
+  traverser strategy updates by $\pi_i(h) / q_{-i}(h)$, eliminating both
+  opponent-reach bias and $1 / p_c(h)$ importance-weight explosion.
+- **Suit-isomorphic hand and board canonicalization**:
+  `_suit_signature` canonicalizes suits jointly across `(hole_cards, board)` and
+  sorts flop cards while preserving turn and river arrival order, guaranteeing
+  invariance under all $4! = 24$ suit permutations and $3! = 6$ flop orderings.
+- **Cross-deal postflop regret sharing and hierarchical generalization**:
+  Postflop training pools regrets across equivalent bucket-and-betting-context
+  keys (`_abstract_regrets`), while `AbstractHUNLAgent` resolves unseen states
+  through a 3-tier hierarchy (`exact` $\to$ `strategy_sums`-weighted
+  `generalized` $\to$ card-aware `_tactical_fallback`) and records per-decision
+  lookup hit rates (`exact_lookup_rate`, `generalized_lookup_rate`,
+  `fallback_lookup_rate`).
+- **Local Best Response (`pokerlab.evaluation.lbr`)**:
+  Provides `BayesianRangeTracker`, `LocalBestResponseAgent`,
+  `evaluate_lbr_kuhn`, `evaluate_lbr_leduc`, and `evaluate_lbr_hunl`. Toy-game
+  LBR evaluators are validated independently against exact Kuhn and Leduc best
+  responses. `evaluate_lbr_hunl` is a finite-sample 1-step Monte Carlo tactical
+  probe and is not an exact global exploitability lower bound.
+
+Run the 6-variant, 4-seed, 50-iteration benchmark:
+
+```sh
+PYTHONPATH=src python -m pokerlab.research.nlhe.benchmark \
+  --iterations 50 --checkpoints 10 25 50 \
+  --seeds 11 23 47 89 --evaluation-hands 100 \
+  --output-root results/nlhe_abstraction
+```
+
+See [docs/phase7_hunl_validation.md](docs/phase7_hunl_validation.md) for the
+mathematical derivations, recorded results in
+`results/nlhe_abstraction/run-20261101T220341Z-6f72de15/`, lookup coverage
+telemetry, and limitations.

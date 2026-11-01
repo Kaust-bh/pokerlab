@@ -26,6 +26,8 @@ class HUNLGameConfig:
     equity_samples: int = 64
     opponent_range: str = "uniform"
     action_profile: str = "legacy"
+    board_abstraction: str = "exact"
+    average_strategy_mode: str = "reach_weighted"
 
     def __post_init__(self) -> None:
         if self.chips_per_bb < 1:
@@ -60,6 +62,14 @@ class HUNLGameConfig:
         if self.action_profile not in ACTION_PROFILES:
             raise ValueError(
                 f"action_profile must be one of {', '.join(ACTION_PROFILES)}"
+            )
+        if self.board_abstraction not in {"exact", "isomorphic", "texture"}:
+            raise ValueError(
+                "board_abstraction must be 'exact', 'isomorphic', or 'texture'"
+            )
+        if self.average_strategy_mode not in {"reach_weighted", "importance_sampling"}:
+            raise ValueError(
+                "average_strategy_mode must be 'reach_weighted' or 'importance_sampling'"
             )
 
     @property

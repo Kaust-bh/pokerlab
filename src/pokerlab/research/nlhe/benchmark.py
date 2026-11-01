@@ -34,6 +34,7 @@ VARIANT_NAMES = (
     "equity_20",
     "action_wide",
     "combined_wide",
+    "isomorphic",
 )
 BASELINES = ("Random", "Heuristic", "Equity")
 
@@ -86,6 +87,12 @@ def variant_config(name: str, plan: BenchmarkPlan) -> HUNLGameConfig:
             **common,
             postflop_method="sampled_equity",
             action_profile="wide",
+        )
+    if name == "isomorphic":
+        return HUNLGameConfig(
+            **common,
+            postflop_method="sampled_equity",
+            board_abstraction="isomorphic",
         )
     raise ValueError(f"unknown variant {name!r}")
 
@@ -230,7 +237,7 @@ class _LegacyMenuAgent(Agent):
     def reset(self, seed: int | None = None) -> None:
         self.wrapped.reset(seed)
 
-    def act(self, observation):
+    def _legacy_observation(self, observation):
         legacy_observation = replace(observation, action_profile="legacy")
         legacy_actions = tuple(
             spec.engine
@@ -238,9 +245,13 @@ class _LegacyMenuAgent(Agent):
         )
         if not legacy_actions:
             raise RuntimeError("legacy action menu unexpectedly empty")
-        return self.wrapped.act(
-            replace(legacy_observation, legal_actions=legacy_actions)
-        )
+        return replace(legacy_observation, legal_actions=legacy_actions)
+
+    def act(self, observation):
+        return self.wrapped.act(self._legacy_observation(observation))
+
+    def action_probabilities(self, observation):
+        return self.wrapped.action_probabilities(self._legacy_observation(observation))
 
 
 def _evaluate_one(
@@ -255,13 +266,17 @@ def _evaluate_one(
     opponent_checkpoint: int | None,
     first_button_role: str,
     plan: BenchmarkPlan,
+    strategy_sums=None,
+    previous_strategy_sums=None,
 ) -> dict:
     tournament = TournamentSimulator()
     generated_agents = []
     tournament.register(
         "Trained",
         lambda: (
-            generated_agents.append(AbstractHUNLAgent(strategy, game_config))
+            generated_agents.append(
+                AbstractHUNLAgent(strategy, game_config, strategy_sums=strategy_sums)
+            )
             or generated_agents[-1]
         ),
     )
@@ -278,7 +293,14 @@ def _evaluate_one(
             lambda: _LegacyMenuAgent(opponent_factory()),
         )
     else:
-        tournament.register(opponent, opponent_factory)
+        tournament.register(
+            opponent,
+            lambda: AbstractHUNLAgent(
+                competitor_strategy,
+                game_config,
+                strategy_sums=previous_strategy_sums,
+            ),
+        )
     first_button = "Trained" if first_button_role == "trained" else opponent
     match_seed = _stable_match_seed(seed, checkpoint, opponent, first_button_role)
     game_settings = TournamentConfig(
@@ -299,6 +321,7 @@ def _evaluate_one(
     )
     wall = time.perf_counter() - started
     trained = generated_agents[-1]
+    rates = trained.lookup_rates()
     net = result.net_chips["Trained"]
     hands = result.hands_played
     if sum(result.net_chips.values()) != 0:
@@ -322,6 +345,12 @@ def _evaluate_one(
         "hand_ties": result.hand_ties,
         "runtime_seconds": wall,
         "trained_decisions": trained.decisions,
+        "exact_hits": rates["exact_hits"],
+        "generalized_hits": rates["generalized_hits"],
+        "fallback_hits": rates["fallback_hits"],
+        "exact_lookup_rate": rates["exact_rate"],
+        "generalized_lookup_rate": rates["generalized_rate"],
+        "fallback_lookup_rate": rates["fallback_rate"],
         "trained_seconds_per_decision": trained.decision_seconds
         / max(trained.decisions, 1),
     }
@@ -473,10 +502,20 @@ def run_benchmark(
             checkpoints_by_variant_seed[(variant, seed)] = points
             previous_point = None
             previous_strategy = None
+            previous_sums = None
             for checkpoint in points:
                 directory = checkpoint_dirs[(variant, seed, checkpoint)]
                 strategy = deserialize_strategy(
                     json.loads((directory / "strategy.json").read_text())
+                )
+                ckpt_payload = json.loads((directory / "checkpoint.json").read_text())
+                strategy_sums = deserialize_strategy(
+                    {
+                        "information_sets": [
+                            {"info": row["info"], "strategy": row["values"]}
+                            for row in ckpt_payload.get("strategy_sums", [])
+                        ]
+                    }
                 )
                 game_config = variant_config(variant, plan)
                 for opponent in BASELINES:
@@ -493,6 +532,7 @@ def run_benchmark(
                                 opponent_checkpoint=None,
                                 first_button_role=position,
                                 plan=plan,
+                                strategy_sums=strategy_sums,
                             )
                         )
                 if previous_point is not None and previous_strategy is not None:
@@ -509,10 +549,13 @@ def run_benchmark(
                                 opponent_checkpoint=previous_point,
                                 first_button_role=position,
                                 plan=plan,
+                                strategy_sums=strategy_sums,
+                                previous_strategy_sums=previous_sums,
                             )
                         )
                 previous_point = checkpoint
                 previous_strategy = strategy
+                previous_sums = strategy_sums
             log_event(
                 "evaluated_variant_seed",
                 variant=variant,
@@ -521,6 +564,8 @@ def run_benchmark(
             )
     _write_csv(run_dir / "evaluation.csv", evaluation_rows)
     write_analysis(run_dir, evaluation_rows)
+    repo_root = Path(__file__).resolve().parents[4]
+    git_head = _git(["git", "-C", str(repo_root), "rev-parse", "HEAD"])
     summary = {
         "run_id": run_dir.name,
         "created_utc": datetime.now(UTC).isoformat(),
@@ -541,22 +586,34 @@ def run_benchmark(
         "process_peak_rss_bytes": _peak_rss_bytes(),
         "exact_exploitability_available": False,
         "resume_checkpoint": resumed_from,
-        "source_revision": _git(["git", "rev-parse", "HEAD"]),
+        "source_revision": git_head,
     }
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
 
     files = sorted(path for path in run_dir.rglob("*") if path.is_file())
-    source_files = sorted(Path("src/pokerlab").rglob("*.py"))
+    src_root = (
+        Path("src/pokerlab")
+        if Path("src/pokerlab").exists()
+        else repo_root / "src/pokerlab"
+    )
+    source_files = sorted(src_root.rglob("*.py"))
     manifest = {
         "created_utc": datetime.now(UTC).isoformat(),
-        "git_head": _git(["git", "rev-parse", "HEAD"]),
-        "git_status_porcelain": _git(["git", "status", "--porcelain"]),
+        "git_head": git_head,
+        "git_status_porcelain": _git(
+            ["git", "-C", str(repo_root), "status", "--porcelain"]
+        ),
         "platform": platform.platform(),
         "python": sys.version,
         "artifact_sha256": {
             str(path.relative_to(run_dir)): _hash(path) for path in files
         },
-        "source_sha256": {str(path): _hash(path) for path in source_files},
+        "source_sha256": {
+            str(path.relative_to(repo_root) if path.is_absolute() else path): _hash(
+                path
+            )
+            for path in source_files
+        },
     }
     (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     return run_dir

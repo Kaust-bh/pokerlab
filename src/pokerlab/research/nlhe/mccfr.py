@@ -39,6 +39,30 @@ def average_strategy_importance_weight(
     return own_reach / (chance_reach * opponent_proposal_reach)
 
 
+def average_strategy_reach_weight(
+    own_reach: float, opponent_proposal_reach: float
+) -> float:
+    """Chance-natural, opponent-importance-weighted own-reach factor.
+
+    When chance is sampled from its true prior p_c(h) and opponent actions are
+    sampled from a uniform full-support proposal q_{-i}(h), each history h in I
+    is visited with probability p_c(h) * q_{-i}(h). Weighting the traverser
+    update by own_reach / q_{-i}(h) gives expected increment:
+
+        E[Delta S_i^t(I, a)] = sum_{h in I} p_c(h) * pi_i(h) * sigma_i(I, a)
+                             = P_c(I) * pi_i(I) * sigma_i(I, a)
+
+    where P_c(I) = sum_{h in I} p_c(h) > 0 depends only on I (not iteration t
+    or action a) and cancels upon action normalization, avoiding both opponent
+    strategy reach bias pi_{-i}(I) and 1 / p_c(h) variance explosion.
+    """
+    if own_reach < 0 or opponent_proposal_reach <= 0:
+        raise ValueError(
+            "own_reach must be nonnegative and opponent_proposal_reach positive"
+        )
+    return own_reach / opponent_proposal_reach
+
+
 @dataclass(frozen=True, slots=True)
 class HUNLMCCFRConfig:
     iterations: int = 10
@@ -51,23 +75,35 @@ class HUNLMCCFRConfig:
 
 
 class ExternalSamplingMCCFR:
-    """Two-player, on-demand ES-MCCFR with an importance-weighted avg policy."""
+    """Two-player, on-demand ES-MCCFR with an unbiased own-reach avg policy."""
 
     def __init__(self, config: HUNLMCCFRConfig | None = None) -> None:
         self.config = config or HUNLMCCFRConfig()
         self.rng = random.Random(self.config.seed)
         self.regrets: dict[HUNLInformationSet, dict[AbstractAction, float]] = {}
+        self._abstract_regrets: dict[tuple, dict[AbstractAction, float]] = {}
         self.strategy_sums: dict[HUNLInformationSet, dict[AbstractAction, float]] = {}
         self.iterations = 0
         self.traversals = 0
         self.sampled_nodes = 0
         self.training_records: list[dict[str, float | int]] = []
 
+    def _board_mode(self) -> str:
+        return getattr(self.config.game, "board_abstraction", "exact")
+
     def _strategy(self, info: HUNLInformationSet) -> dict[AbstractAction, float]:
         actions = info.legal_actions
         values = self.regrets.setdefault(info, dict.fromkeys(actions, 0.0))
         positive = {action: max(values.get(action, 0.0), 0.0) for action in actions}
         total = sum(positive.values())
+        if total <= 0 and info.street != "preflop":
+            abs_key = info.postflop_abstraction_key(self._board_mode())
+            abs_values = self._abstract_regrets.get(abs_key)
+            if abs_values is not None:
+                positive = {
+                    action: max(abs_values.get(action, 0.0), 0.0) for action in actions
+                }
+                total = sum(positive.values())
         if total <= 0:
             return dict.fromkeys(actions, 1.0 / len(actions))
         return {action: positive[action] / total for action in actions}
@@ -118,6 +154,20 @@ class ExternalSamplingMCCFR:
             probability /= remaining
         return probability
 
+    def _rebuild_abstract_regrets(self) -> None:
+        board_mode = self._board_mode()
+        abstract: dict[tuple, dict[AbstractAction, float]] = {}
+        for info, row in sorted(self.regrets.items(), key=lambda item: repr(item[0])):
+            if info.street == "preflop":
+                continue
+            abs_key = info.postflop_abstraction_key(board_mode)
+            target = abstract.setdefault(
+                abs_key, dict.fromkeys(info.legal_actions, 0.0)
+            )
+            for action, value in row.items():
+                target[action] = target.get(action, 0.0) + value
+        self._abstract_regrets = abstract
+
     def _average_traverse(
         self,
         state,
@@ -138,11 +188,20 @@ class ExternalSamplingMCCFR:
             strategy = self._strategy(info)
             profile[info] = strategy
         actions = info.legal_actions
+        is_reach_weighted = (
+            getattr(self.config.game, "average_strategy_mode", "reach_weighted")
+            == "reach_weighted"
+        )
         if player == traverser:
-            chance_reach = self._chance_reach(state)
-            weight = average_strategy_importance_weight(
-                own_reach, chance_reach, opponent_proposal_reach
-            )
+            if is_reach_weighted:
+                weight = average_strategy_reach_weight(
+                    own_reach, opponent_proposal_reach
+                )
+            else:
+                chance_reach = self._chance_reach(state)
+                weight = average_strategy_importance_weight(
+                    own_reach, chance_reach, opponent_proposal_reach
+                )
             sums = delta.setdefault(info, dict.fromkeys(actions, 0.0))
             for action in actions:
                 sums[action] += weight * strategy[action]
@@ -156,8 +215,6 @@ class ExternalSamplingMCCFR:
                     counter,
                 )
         else:
-            # Uniform proposal has full support even where current strategy has
-            # zero probability; inverse proposal reach corrects the estimator.
             action = self.rng.choice(actions)
             q = 1.0 / len(actions)
             self._average_traverse(
@@ -181,19 +238,21 @@ class ExternalSamplingMCCFR:
             )
             # Lazy infosets encountered in either pass get a frozen strategy.
             self._regret_traverse(state, player, profile, regret_delta, counter)
-        for player in (0, 1):
-            state = AbstractHUNLState.new_hand(
-                self.config.game, self.rng, button_index=self.rng.randrange(2)
-            )
-            self._average_traverse(
-                state, player, profile, average_delta, 1.0, 1.0, counter
-            )
         for info, updates in regret_delta.items():
             target = self.regrets.setdefault(
                 info, dict.fromkeys(info.legal_actions, 0.0)
             )
             for action, value in updates.items():
                 target[action] = target.get(action, 0.0) + value
+        self._rebuild_abstract_regrets()
+        post_profile = self._profile_snapshot()
+        for player in (0, 1):
+            state = AbstractHUNLState.new_hand(
+                self.config.game, self.rng, button_index=self.rng.randrange(2)
+            )
+            self._average_traverse(
+                state, player, post_profile, average_delta, 1.0, 1.0, counter
+            )
         for info, updates in average_delta.items():
             target = self.strategy_sums.setdefault(
                 info, dict.fromkeys(info.legal_actions, 0.0)
@@ -210,13 +269,16 @@ class ExternalSamplingMCCFR:
         masses = self.strategy_sums.get(info, {})
         total = sum(max(0.0, masses.get(action, 0.0)) for action in actions)
         if total <= 0:
+            if info in self.regrets:
+                return self._strategy(info)
             return dict.fromkeys(actions, 1.0 / len(actions))
         return {action: max(0.0, masses.get(action, 0.0)) / total for action in actions}
 
     def average_strategy_profile(
         self,
     ) -> dict[HUNLInformationSet, dict[AbstractAction, float]]:
-        return {info: self.average_strategy(info) for info in self.strategy_sums}
+        keys = dict.fromkeys((*self.strategy_sums, *self.regrets))
+        return {info: self.average_strategy(info) for info in keys}
 
     @staticmethod
     def _table_bytes(table) -> int:
@@ -310,6 +372,7 @@ class ExternalSamplingMCCFR:
             )
 
         self.regrets = decode_table(payload["regrets"])
+        self._rebuild_abstract_regrets()
         self.strategy_sums = decode_table(payload["strategy_sums"])
         self.iterations = int(payload["iterations_completed"])
         self.traversals = int(payload["traversals"])
