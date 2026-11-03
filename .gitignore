@@ -1,30 +1,40 @@
-# Python virtual environments
+# Byte-compiled / optimized / ambient files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Packaging and builds
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
 .venv/
 venv/
 env/
 
-# Python cache
-__pycache__/
-*.py[cod]
-*.egg-info/
-
-# Testing
+# Tool and testing caches
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 
-# IDE and OS
+# IDE and OS artifacts
 .DS_Store
 .vscode/
 .idea/
 
-# Generated data
-results/*
-!results/.gitkeep
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+
+# Logs and runtime diagnostics
+*.log
+
+# Generated models and experimental results (preserve repository anchors)
 models/*
 !models/.gitkeep
-
-# Generated package metadata
-*.egg-info/
-
-# Python cache
-__pycache__/
-*.py[cod]
+results/*
+!results/.gitkeep

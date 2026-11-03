@@ -111,7 +111,7 @@ Tests live in `tests/`. Monte Carlo tests use fixed seeds; deterministic enumera
 
 ## Scope and roadmap
 
-Phases 3A and 3B implement vanilla CFR for Kuhn and fixed-limit Leduc Poker. Phase 3C adds external-sampling MCCFR for those same research games. The project does not implement NLHE CFR, CFR+, Deep CFR, neural networks, opponent modeling, or a Streamlit arena. PokerLab is an educational simulator using play-money chips and is not designed for real-money gambling.
+Initially developed through Phases 1–3 covering basic game engines, baselines, and toy-game CFR (Kuhn, Leduc), PokerLab was systematically expanded across Phases 4–11 to implement CFR variants (CFR+, DCFR), Deep CFR, abstracted No-Limit Texas Hold'em MCCFR, an interactive local Arena viewer with human play and policy inspection, and the HarveySpecter adaptive opponent modeling engine. PokerLab is an educational, research-oriented simulator using play-money chips and is not designed for real-money gambling.
 
 ## Phase 3C: External Sampling MCCFR
 
@@ -156,11 +156,10 @@ training time per 1,000 iterations in this run but had substantially higher
 exact exploitability at the same iteration count. The Leduc MCCFR Player 0
 values ranged from −0.096894 to 0.104598, indicating high run variance at
 this budget. These measurements do not show MCCFR reaching a useful Leduc
-equilibrium at 1,000 iterations. The full per-checkpoint curves, paired
-strategy distances, configurations, and hashes are in
-[results/mccfr/run-20261030T213116Z/](results/mccfr/run-20261030T213116Z/).
+equilibrium at 1,000 iterations. The full per-checkpoint curves, paired strategy distances, configurations, and hashes are in
+`results/mccfr/run-20261030T213116Z/` (see [docs/phase3c_mccfr.md](docs/phase3c_mccfr.md)).
 For denser wall-time checkpoints with the same seeds and training budget, see
-[results/mccfr/run-20261030T213604Z/](results/mccfr/run-20261030T213604Z/).
+`results/mccfr/run-20261030T213604Z/`.
 At approximately matched training time near the end of the MCCFR runs, vanilla
 had lower exact exploitability: in Leduc, about 0.167 at its 100-iteration
 checkpoint versus 1.23–1.33 for MCCFR at 1,000 iterations; in Kuhn, about
@@ -328,3 +327,194 @@ See [docs/phase7_hunl_validation.md](docs/phase7_hunl_validation.md) for the
 mathematical derivations, recorded results in
 `results/nlhe_abstraction/run-20261101T220341Z-6f72de15/`, lookup coverage
 telemetry, and limitations.
+
+## PokerLab Arena: Interactive Human-vs-Agent Play & Policy Inspector
+
+PokerLab Arena (`src/pokerlab/arena/`) is a local web-based application for
+playing Heads-Up No-Limit Texas Hold'em against PokerLab AI agents or watching
+autonomous bot-vs-bot matches while inspecting agent decision telemetry.
+
+### Architecture
+
+- **Engine-backed session controller (`pokerlab.arena.session`)**:
+  `ArenaSession` wraps `GameState`, `Deck`, and `observe()` without duplicating
+  poker rules, legal-action generation, side-pot construction, or showdown
+  evaluation. A non-blocking session lock (`ActionBusyError` / `409 Conflict`)
+  prevents overlapping state mutations, and `expected_hand_number` /
+  `expected_step_count` checks reject stale or duplicate frontend action
+  submissions.
+- **Human & AI seat catalog (`pokerlab.arena.agents`)**:
+  Supports `Human Player` (`human`), `RandomAgent` (`random`),
+  `HeuristicAgent` (`heuristic`), `EquityAgent` (`equity`), and
+  `AbstractHUNLAgent` (`mccfr`). Toy-game and fixed-codec solvers (`kuhn_cfr`,
+  `leduc_cfr`, `deep_cfr`) are listed in the catalog with explicit
+  incompatibility reasons explaining why they cannot act on 52-card HUNL
+  observations.
+- **Non-mutating Policy Inspector (`pokerlab.arena.inspector`)**:
+  `inspect_and_execute_agent()` captures genuine pre-decision telemetry from
+  each agent without altering its RNG stream or decision, separating
+  `direct_telemetry`, `derived_analysis`, and `unavailable_fields` into
+  immutable `DecisionRecord` snapshots.
+- **HTTP/JSON server & single-page table UI (`pokerlab.arena.server`, `static/index.html`)**:
+  Uses Python's standard-library `ThreadingHTTPServer` (`ArenaApp`) to serve an
+  interactive poker table, human action bar, Policy Inspector drawer, Decision
+  Timeline, Equity Visualization panel, and Match Statistics panel.
+  Endpoints include:
+  - `GET /api/state`, `GET /api/human/state`, `GET /api/agents`
+  - `GET /api/decisions`, `GET /api/human/decisions`
+  - `POST /api/human/start`, `POST /api/human/action`, `POST /api/human/next-hand`, `POST /api/human/reset`
+  - `POST /api/start`, `POST /api/step`, `POST /api/pause`, `POST /api/resume`, `POST /api/reset`, `POST /api/settings`
+
+### Installation and Launch
+
+```sh
+python -m pip install -e '.[dev]'
+PYTHONPATH=src python -m pokerlab.arena --host 127.0.0.1 --port 8501
+```
+
+Or use the console script / root entry point:
+
+```sh
+pokerlab-arena --port 8501
+python app.py --port 8501
+```
+
+Then open `http://127.0.0.1:8501` in a browser.
+
+### Human-vs-Agent Mode, Policy Inspector, and Equity Visualization
+
+1. **Human Gameplay & Controls**:
+   - Click **Human (S1) vs AI** or **Human (S2) vs AI** (or assign `Human Player`
+     to either seat) and click **Start Hand**.
+   - Your hole cards are visible while the AI opponent's hole cards remain
+     hidden (`??`) until showdown.
+   - When it is your turn, the Human Action Bar displays the exact amount
+     required to call (`to_call`), minimum and maximum legal bet/raise target
+     totals (`min_amount` / `max_amount`), a synchronized slider/number input
+     with `Min`, `1/2 Pot`, `Pot`, and `Max` presets, and **Fold**, **Check**,
+     **Call**, **Bet / Raise To**, and **All-In** buttons.
+   - Submitting a human action validates it on the backend against
+     `GameState.betting`, applies it, and automatically advances the AI
+     opponent's response(s) until your next turn or hand completion.
+2. **Policy Inspector & Decision Timeline**:
+   - Every decision is recorded in the chronological **Decision Timeline**.
+     Clicking any entry opens its frozen snapshot in the **Policy Inspector**:
+     - `AbstractHUNLAgent (MCCFR)`: normalized action probabilities, chosen
+       action, lookup tier (`exact`, `generalized`, or `fallback`), matched
+       abstraction/information-set key, and derived Shannon entropy (`bits` and
+       normalized).
+     - `EquityAgent`: actual Monte Carlo equity estimate, 95% Hoeffding
+       confidence interval, simulation count, exact rollout RNG seed, pot-odds
+       thresholds, and derived 1-step static showdown EVs for fold/check/call.
+     - `HeuristicAgent`: raw hand-category/preflop strength, draw detection,
+       in-position bonus, street pressure count, and decision thresholds.
+     - `RandomAgent`: legal action set, uniform probability, and Shannon
+       entropy.
+3. **Equity Estimates & Limitations**:
+   - When enabled, the human player's **Equity Visualization** panel computes a
+     bounded, independent Monte Carlo equity estimate against a uniform random
+     opponent range using only the human's hole cards and public community
+     cards. It is explicitly labeled as approximate, never reads hidden opponent
+     hole cards, and can be toggled off at any time.
+   - For `AbstractHUNLAgent`, strategy action probabilities are never conflated
+     with poker hand equity.
+
+### Known Limitations
+
+- Arena is a local single-table heads-up No-Limit Hold'em application; it does
+  not yet support multi-table tournament brackets or persistent database
+  storage across server restarts.
+- Toy-game solvers (`Kuhn CFR`, `Leduc CFR`, `DeepCFRPolicy`) operate on 3-card
+  or 6-card game trees and are documented in the UI as incompatible with 52-card
+  HUNL.
+
+## Phase 10: HarveySpecter — Adaptive Opponent Intelligence & Exploitative Strategy
+
+*"Play the man, not the odds."*
+
+`src/pokerlab/opponent_model/` implements **HarveySpecter**, an online opponent
+modeling, Bayesian hand-range inference, archetype classification, and adaptive
+exploitative strategy system for Heads-Up No-Limit Hold'em:
+
+- **Information-safe data collection (`collector.py`)**:
+  `OpponentDataCollector` records only genuinely observable public gameplay
+  information (`Observation.history`, bet/raise amounts, pot/stack ratios,
+  street, position) and legitimately revealed showdown hole cards. Hidden hole
+  cards on folded hands are never accessed or leaked, and `processed_history_len`
+  prevents duplicate action ingestion.
+- **Smoothed behavioural profiling (`statistics.py`)**:
+  `BehaviouralProfiler` computes 20+ poker statistics (`VPIP`, `PFR`,
+  `VPIP - PFR`, `three_bet_freq`, `fold_to_three_bet`, `cbet_freq`,
+  `fold_to_cbet`, `aggression_frequency`, `aggression_factor`, `fold_to_bet`,
+  `fold_to_river_bet`, `showdown_frequency`, `wtsd_when_saw_flop`,
+  `won_at_showdown`, `avg_bet_size_pot_ratio`, `avg_raise_size_pot_ratio`, and
+  button/big-blind splits) with Beta-binomial shrinkage, Wilson 95% confidence
+  intervals, configurable recency decay, and a strategy-drift `stability_score`.
+- **Bayesian hand-range estimation (`range_model.py`)**:
+  `BayesianRangeModel` maintains an explicit posterior over all
+  $\binom{52}{2} = 1,326$ two-card combinations (and 169 canonical classes),
+  applies exact card removal for hero and board cards, updates sequentially on
+  each observed opponent action ($P(H \mid A) \propto P(A \mid H, C, \theta) P(H)$),
+  and calibrates bluff/trap parameters from revealed showdown hands via
+  `ShowdownCalibration`.
+- **Probabilistic archetype classification (`archetypes.py`)**:
+  `ArchetypeClassifier` outputs a soft distribution and confidence score over
+  `nit`, `tight_passive`, `calling_station`, `tight_aggressive`,
+  `loose_aggressive`, `maniac`, and `balanced_unknown`, defaulting toward
+  `balanced_unknown` on sparse samples and adapting when opponent tendencies
+  shift.
+- **Exploitative strategy engine & adaptive MCCFR blending (`exploit.py`, `adaptive_agent.py`)**:
+  `HarveySpecterAgent` wraps `AbstractHUNLAgent` and blends baseline MCCFR with
+  range-and-tendency-conditioned exploitative play:
+  $$\pi_{\text{final}}(a) = (1 - \lambda)\,\pi_{\text{MCCFR}}(a) + \lambda\,\pi_{\text{exploit}}(a)$$
+  where $\lambda \in [0, \lambda_{\max}]$ scales with sample size, archetype
+  confidence, behavioral extremity, and profile stability ($\lambda = 0$ on cold
+  start). Also provides controlled archetype bots (`CallingStationAgent`,
+  `TightPassiveAgent`, `LooseAggressiveAgent`, `ManiacAgent`, `NitAgent`),
+  atomic JSON profile persistence (`profile_store.py`), and full PokerLab Arena
+  + Policy Inspector integration (including a 13×13 canonical range heatmap and
+  `/api/opponent-profile/*` endpoints).
+
+Run the paired multi-seed benchmark:
+
+```sh
+PYTHONPATH=src python -m pokerlab.opponent_model.benchmark \
+  --hands-per-seed 80 --seeds 101 202 303 404 \
+  --output-dir results/harvey_specter/run-phase10
+```
+
+In the 4-seed, 12,800-hand Phase 10 exploratory benchmark (see
+[docs/phase10_harvey_specter.md](docs/phase10_harvey_specter.md)), `HarveySpecter_Disabled` ($\lambda=0$)
+matched `BaselineMCCFR` identically (`0.0 BB/100` difference), while
+`HarveySpecter_Adaptive` achieved positive paired BB/100 gains against all 8
+opponents, including `+928.28 BB/100` vs `CallingStation`, `+574.69 BB/100` vs
+`RandomAgent`, `+497.34 BB/100` vs `LooseAggressive`, `+353.91 BB/100` vs
+`EquityAgent`, and `+221.25 BB/100` vs `TightPassive`. See
+[docs/phase10_harvey_specter.md](docs/phase10_harvey_specter.md) for full
+mathematical derivations, tables, confidence intervals, and limitations.
+
+## Phase 11: Final Validation, Robustness & v1.0 Release
+
+PokerLab Phase 11 concludes the formal development arc by performing an end-to-end mathematical audit, quantitative Bayesian range calibration, non-stationary adaptation testing, counter-exploitation invariant verification, and performance profiling.
+
+### Key Release Highlights & Documented Boundaries
+
+- **Release Status**: **READY WITH DOCUMENTED LIMITATIONS** (HUNL 2-player research and interactive play).
+- **Full Test Suite Integrity**: All **208 repository tests** pass cleanly in ~126s, as verified by the Phase 11 validation run with zero skipped, weakened, or removed assertions.
+- **Zero-Sum Duplicate-Paired Accounting**: Enforces true duplicate position mirroring with hole card swapping, ensuring exact zero-sum chip conservation across all 9 opponents and 6 agent variants.
+- **Preliminary Benchmark Qualifications**: All benchmark results are explicitly preliminary. Evaluated over 3 seeds (`101`, `202`, `303`) with 150 duplicate pairs (300 hands) per matchup, the sample size carries high variance typical of deep-stack No-Limit Hold'em. Extreme win rates (e.g. $+1,632$ BB/100 vs `CallingStation`) reflect the theoretical limit of unconstrained 100 BB exploitation against static non-equilibrium calling bots, not human win-rate expectations. **PokerLab makes no claim of proven general-purpose poker strength or full-game unabstracted Nash exploitability.**
+- **Bayesian Range Model & Metric Limitations**: Evaluated across 1,920 hands, the Bayesian posterior achieves a log loss of **4.8961** (outperforming uniform legal prior 4.9630 and position prior 5.1622) and Brier score improvement to **0.990863**. The reported Expected Calibration Error (ECE) of **0.00045** is structurally governed by 169-class dispersion: $99.97\%$ of observations fall into Bin 0 ($[0.0, 0.1)$) with mean predicted probability $1.44\%$ matching empirical hit rate $1.48\%$. This metric reflects bin mass concentration rather than absolute predictive certainty; predictive gains are demonstrated via log-loss and likelihood ratio ($1.1745$).
+- **Non-Stationary Regime Adaptation**: Recency-weighted classification ($\gamma = 0.94$) detects strategy shifts within a mean delay of **7.2 hands** ($\le 20$ hands requirement) and achieves **73.1%** post-transition accuracy vs 34.6% for unweighted stale evidence.
+- **Counter-Exploitation Invariants**: Verified 0 invariant violations across 3,328 decisions against 4 adversarial counter-strategies (`BluffPunisher`, `ValueFolder`, `AlternatingGear`, `DeceptiveSizing`), with $\lambda$ safely bounded in $[0.0, 0.80]$.
+- **7.7x Hand Evaluation Speedup**: Direct bitmask hand ranking in `fast_hand_rank_value` matches canonical 7-card evaluation bit-for-bit while speeding up range rollouts by 7.7x.
+
+Run the Phase 11 validation pipeline:
+
+```sh
+.venv/bin/python -m pokerlab.opponent_model.validation \
+  --output-dir results/phase11_validation \
+  --benchmark-hands-per-seed 50 \
+  --benchmark-seeds 101 202 303
+```
+
+Detailed methodology, mathematical derivations, complete 6-variant benchmark tables, source code SHA-256 provenance manifests, and reproducibility guides are available in [docs/phase11_final_validation.md](docs/phase11_final_validation.md).

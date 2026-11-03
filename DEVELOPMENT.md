@@ -346,3 +346,91 @@ policy coverage (`exact + generalized`) reached 64.1%–79.2% across variants
 (79.2% for `equity_8`, 72.1% for `isomorphic`, 71.9% for `equity_20`, 70.4% for
 `baseline`). See `docs/phase7_hunl_validation.md` for full derivations, tables,
 and limitations.
+
+### PokerLab Arena: Human-vs-Agent play & Policy Inspector (Phase 9)
+
+`src/pokerlab/arena/` provides a zero-extra-dependency web application for both
+autonomous bot-vs-bot viewing and interactive human-vs-agent play with live
+decision telemetry:
+
+- `agents.py`: Maps `human` (`HumanAgent`), `random`, `heuristic`, `equity`, and
+  `mccfr` (`AbstractHUNLAgent`) to common `Agent` instances and caches
+  lightweight on-demand MCCFR strategies by `(stack_bb, seed)` when no
+  checkpoint path is supplied. Explicitly documents why `kuhn_cfr`,
+  `leduc_cfr`, and `deep_cfr` cannot consume 52-card `Observation` objects.
+- `inspector.py`: Implements `inspect_and_execute_agent()`,
+  `compute_shannon_entropy()`, `estimate_human_public_equity()`, and immutable
+  `DecisionRecord` snapshots. For `EquityAgent`, snapshots `agent._rng.getstate()`
+  prior to `act()` so the inspector captures the exact rollout seed and
+  `EquityEstimate` used by the agent without advancing its RNG stream twice. For
+  `AbstractHUNLAgent`, calls non-mutating `_resolve_policy()` to capture the
+  exact lookup tier (`exact`, `generalized`, `fallback`), matched abstraction
+  key, and action probability distribution before `act()` samples the action.
+- `session.py`: `ArenaSession` supports both bot-vs-bot stepping (`step()`) and
+  human action submission (`submit_human_action()`), validating turn order,
+  stale/duplicate step counters, and exact no-limit bet/raise bounds against
+  `GameState.betting` before automatically advancing consecutive AI responses.
+  Tracks match-scoped statistics (`hands_played`, `hands_won`, `hands_lost`,
+  `net_chips`, `win_rate`, `average_pot_size`, `showdown_frequency`,
+  `fold_frequency`, `opponent_action_distribution`) and clears them on `reset()`.
+- `server.py` & `cli.py`: `ArenaApp` exposes `/api/state`, `/api/human/state`,
+  `/api/human/start`, `/api/human/action`, `/api/human/next-hand`,
+  `/api/human/reset`, and `/api/human/decisions`.
+
+Launch locally with:
+
+```sh
+PYTHONPATH=src python -m pokerlab.arena --host 127.0.0.1 --port 8501
+```
+
+### Phase 10: HarveySpecter — Adaptive Opponent Intelligence & Exploitative Strategy
+
+`src/pokerlab/opponent_model/` adds online opponent profiling, 1,326-combo
+Bayesian hand-range tracking, 7-class probabilistic archetype classification,
+and adaptive MCCFR + exploitative policy blending:
+
+- `models.py` & `collector.py`: `OpponentDataCollector` ingests public action
+  histories and showdown reveals while enforcing card privacy (ignoring hidden
+  hole cards on folded hands) and deduplicating observations via
+  `processed_history_len`.
+- `statistics.py`: `BehaviouralProfiler` computes Beta-smoothed metrics (`vpip`,
+  `pfr`, `vpip_minus_pfr`, `three_bet_freq`, `fold_to_three_bet`, `cbet_freq`,
+  `fold_to_cbet`, `aggression_frequency`, `aggression_factor`, `fold_to_bet`,
+  `fold_to_river_bet`, `showdown_frequency`, `wtsd_when_saw_flop`,
+  `won_at_showdown`, `avg_bet_size_pot_ratio`, `avg_raise_size_pot_ratio`, and
+  button/big-blind splits) with Wilson 95% CIs, recency decay $\gamma$, and
+  windowed drift `stability_score`.
+- `range_model.py`: `BayesianRangeModel` updates $P(H \mid A) \propto P(A \mid H, C, \theta) P(H)$
+  over all 1,326 two-card combinations with exact card removal for hero and
+  board cards, fast 5-to-7-card bitmask/frequency hand evaluation in
+  `postflop_combo_strength`, and `ShowdownCalibration` for out-of-sample Brier
+  and likelihood-ratio evaluation plus showdown parameter updates.
+- `archetypes.py`, `exploit.py`, & `adaptive_agent.py`: `ArchetypeClassifier`
+  computes soft posteriors over `nit`, `tight_passive`, `calling_station`,
+  `tight_aggressive`, `loose_aggressive`, `maniac`, and `balanced_unknown`.
+  `ExploitativeStrategyEngine` evaluates candidate legal actions using
+  range-weighted hero equity and opponent fold-equity estimates, generating
+  grounded natural-language explanations citing exact sample counts.
+  `HarveySpecterAgent` blends $\pi_{\text{MCCFR}}$ and $\pi_{\text{exploit}}$
+  via $\pi_{\text{final}} = (1 - \lambda)\pi_{\text{MCCFR}} + \lambda\pi_{\text{exploit}}$.
+- `profile_store.py` & Arena integration: `OpponentProfileStore` provides atomic
+  JSON save/load, corrupt-file recovery, and isolated per-opponent profiles,
+  exposed in Arena via `/api/opponent-profile`, `/api/opponent-profile/reset`,
+  `/api/opponent-profile/save`, and `/api/opponent-profile/load`.
+- `benchmark.py`: Runs paired multi-seed evaluations across 5 agent variants and
+  8 opponents. Recorded results are in `results/harvey_specter/run-phase10/` and
+  documented in `docs/phase10_harvey_specter.md`.
+
+### Phase 11: Final Validation, Robustness & v1.0 Release
+
+Phase 11 establishes empirical boundaries and release-grade robustness across all PokerLab components:
+
+- `src/pokerlab/opponent_model/validation.py`: Comprehensive test runner covering:
+  - Non-stationary regime adaptation experiments with transition delay tracking and recency weighting comparisons.
+  - Bayesian range model ground truth evaluation against Uniform, Position, and Previous Street baselines across 169 classes.
+  - Counter-exploitation studies against 4 adversarial counter-strategies (`BluffPunisherAgent`, `ValueFolderAgent`, `AlternatingGearAgent`, `DeceptiveSizingAgent`), verifying policy simplex validity and bounded $\lambda$.
+  - End-to-end duplicate-paired benchmark execution across 9 opponents and 6 variants with SHA-256 manifest generation.
+- `fast_hand_rank_value` (`range_model.py`): Replaced slow 21-combination combinatorial evaluation with a 7.7x faster bitmask histogram evaluator with exact equivalence to canonical 7-card evaluator.
+- True duplicate position mirroring: Swapped dictionary insertion order on mirror hands to guarantee true hole card inversion on identical deck seeds.
+- Robust profile recovery: Verified atomic error recovery on corrupt profile JSON files.
+- Release status: **READY WITH DOCUMENTED LIMITATIONS** (HUNL 2-player game research). All 208 tests were verified passing in the final validation run with zero skipped or weakened assertions. Full documentation, calibration analysis, SHA-256 source manifests, and limitations are detailed in `docs/phase11_final_validation.md`.

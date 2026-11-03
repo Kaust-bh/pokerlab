@@ -1,0 +1,2173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PokerLab Arena — Human vs Agent &amp; Policy Inspector</title>
+  <style>
+    :root {
+      --bg-dark: #090e15;
+      --bg-panel: #121a26;
+      --bg-panel-alt: #182334;
+      --border-subtle: #26364d;
+      --text-main: #eef3f9;
+      --text-muted: #94a5be;
+      --accent-gold: #f5b942;
+      --accent-emerald: #18a974;
+      --accent-blue: #3b82f6;
+      --accent-purple: #8b5cf6;
+      --accent-red: #ef4444;
+      --felt-outer: #0d402b;
+      --felt-inner: #156243;
+      --rail-dark: #231915;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+      background: radial-gradient(circle at 50% 0%, #152133 0%, var(--bg-dark) 78%);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 11px 22px;
+      background: rgba(18, 26, 38, 0.94);
+      border-bottom: 1px solid var(--border-subtle);
+      backdrop-filter: blur(8px);
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-logo {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--accent-emerald), #0d5c3e);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      font-weight: 800;
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.22);
+    }
+
+    .brand h1 {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+
+    .brand span {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-left: 6px;
+      font-weight: 400;
+    }
+
+    .session-meta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 12.5px;
+      color: var(--text-muted);
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      background: var(--bg-panel-alt);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-main);
+    }
+
+    .badge.status-running {
+      background: rgba(24, 169, 116, 0.18);
+      border-color: var(--accent-emerald);
+      color: #4ade80;
+    }
+
+    .badge.status-paused {
+      background: rgba(245, 185, 66, 0.18);
+      border-color: var(--accent-gold);
+      color: var(--accent-gold);
+    }
+
+    .badge.status-hand_complete,
+    .badge.status-match_over {
+      background: rgba(59, 130, 246, 0.18);
+      border-color: var(--accent-blue);
+      color: #93c5fd;
+    }
+
+    .badge.mode-pill {
+      background: rgba(139, 92, 246, 0.18);
+      border-color: var(--accent-purple);
+      color: #c4b5fd;
+    }
+
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 320px minmax(520px, 1fr) 390px;
+      align-items: start;
+      gap: 14px;
+      padding: 14px 18px;
+      max-width: 1720px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    @media (max-width: 1320px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+      .table-stage {
+        position: static !important;
+      }
+    }
+
+    .col-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .panel {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .panel-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border-subtle);
+      padding-bottom: 7px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .control-group label {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    input[type="text"],
+    input[type="number"],
+    select {
+      width: 100%;
+      padding: 7px 9px;
+      border-radius: 7px;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-panel-alt);
+      color: var(--text-main);
+      font-size: 12.5px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent-emerald);
+    }
+
+    .row-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .row-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 6px;
+    }
+
+    .btn-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+    }
+
+    button {
+      padding: 8px 11px;
+      border-radius: 8px;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-panel-alt);
+      color: var(--text-main);
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.14s ease;
+    }
+
+    button:hover:not(:disabled) {
+      border-color: #4f6c92;
+      background: #223147;
+    }
+
+    button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    button.btn-primary {
+      background: var(--accent-emerald);
+      border-color: #148f61;
+      color: #fff;
+    }
+
+    button.btn-primary:hover:not(:disabled) {
+      background: #149666;
+    }
+
+    button.btn-blue {
+      background: rgba(59, 130, 246, 0.2);
+      border-color: var(--accent-blue);
+      color: #bfdbfe;
+    }
+
+    button.btn-gold {
+      background: rgba(245, 185, 66, 0.16);
+      border-color: var(--accent-gold);
+      color: var(--accent-gold);
+    }
+
+    button.btn-danger {
+      background: rgba(239, 68, 68, 0.16);
+      border-color: rgba(239, 68, 68, 0.55);
+      color: #fca5a5;
+    }
+
+    button.btn-sm {
+      padding: 5px 8px;
+      font-size: 11px;
+      border-radius: 6px;
+    }
+
+    /* Poker Table Stage */
+    .table-stage {
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      align-items: center;
+      align-self: start;
+      position: sticky;
+      top: 14px;
+      padding: 16px;
+      background: radial-gradient(circle at center, #141f2e 0%, #0c131d 100%);
+      border: 1px solid var(--border-subtle);
+      border-radius: 14px;
+      gap: 14px;
+    }
+
+    .poker-oval {
+      width: 100%;
+      max-width: 760px;
+      height: 400px;
+      margin: 0 auto;
+      border-radius: 200px;
+      background: radial-gradient(ellipse at center, var(--felt-inner) 0%, var(--felt-outer) 78%, #08291b 100%);
+      border: 13px solid var(--rail-dark);
+      box-shadow:
+        inset 0 0 40px rgba(0, 0, 0, 0.65),
+        0 16px 42px rgba(0, 0, 0, 0.65),
+        0 0 0 3px #c6923a;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+      padding: 18px 32px;
+      position: relative;
+    }
+
+    .seat-box {
+      background: rgba(14, 21, 31, 0.93);
+      border: 2px solid var(--border-subtle);
+      border-radius: 14px;
+      padding: 9px 16px;
+      min-width: 310px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      position: relative;
+      transition: all 0.2s ease;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+    }
+
+    .seat-box.active-turn {
+      border-color: var(--accent-gold);
+      box-shadow: 0 0 22px rgba(245, 185, 66, 0.48);
+    }
+
+    .seat-box.human-seat {
+      border-left: 4px solid var(--accent-purple);
+    }
+
+    .seat-box.folded {
+      opacity: 0.55;
+    }
+
+    .seat-info {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .seat-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .seat-name {
+      font-size: 14.5px;
+      font-weight: 700;
+    }
+
+    .dealer-puck {
+      width: 21px;
+      height: 21px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #facc15, #ca8a04);
+      color: #111;
+      font-weight: 900;
+      font-size: 11px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px solid #fff;
+    }
+
+    .agent-pill {
+      font-size: 11px;
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.07);
+      padding: 2px 7px;
+      border-radius: 4px;
+      width: fit-content;
+    }
+
+    .stack-line {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: #4ade80;
+    }
+
+    .seat-badges {
+      display: flex;
+      gap: 5px;
+      margin-top: 2px;
+      flex-wrap: wrap;
+    }
+
+    .mini-tag {
+      font-size: 9.5px;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+
+    .mini-tag.turn {
+      background: var(--accent-gold);
+      color: #111;
+    }
+
+    .mini-tag.human {
+      background: var(--accent-purple);
+      color: #fff;
+    }
+
+    .mini-tag.allin {
+      background: var(--accent-red);
+      color: #fff;
+    }
+
+    .mini-tag.folded {
+      background: #475569;
+      color: #e2e8f0;
+    }
+
+    .mini-tag.winner {
+      background: var(--accent-emerald);
+      color: #fff;
+    }
+
+    .cards-row {
+      display: flex;
+      gap: 7px;
+      align-items: center;
+    }
+
+    .playing-card {
+      width: 50px;
+      height: 70px;
+      border-radius: 7px;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.38);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 4px 5px;
+      font-weight: 800;
+      user-select: none;
+    }
+
+    .playing-card.card-red { color: #dc2626; }
+    .playing-card.card-dark { color: #0f172a; }
+    .playing-card.card-blue { color: #1d4ed8; }
+    .playing-card.card-green { color: #15803d; }
+
+    .playing-card.card-hidden {
+      background: repeating-linear-gradient(
+        45deg,
+        #1e3a8a,
+        #1e3a8a 6px,
+        #172554 6px,
+        #172554 12px
+      );
+      border: 2px solid #93c5fd;
+      color: rgba(255, 255, 255, 0.78);
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+    }
+
+    .playing-card.card-slot {
+      background: rgba(0, 0, 0, 0.22);
+      border: 1px dashed rgba(255, 255, 255, 0.22);
+      box-shadow: none;
+    }
+
+    .card-corner {
+      font-size: 12px;
+      line-height: 1;
+    }
+
+    .card-center-suit {
+      font-size: 22px;
+      align-self: center;
+      line-height: 1;
+    }
+
+    .bet-chip-pill {
+      background: rgba(11, 16, 23, 0.86);
+      border: 1px solid var(--accent-gold);
+      color: var(--accent-gold);
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 700;
+    }
+
+    .board-center {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .pot-banner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(0, 0, 0, 0.58);
+      padding: 5px 15px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      font-size: 13.5px;
+      font-weight: 700;
+    }
+
+    .street-pill {
+      color: var(--accent-gold);
+      text-transform: uppercase;
+      font-size: 11.5px;
+      letter-spacing: 0.8px;
+    }
+
+    .latest-action-banner {
+      width: 100%;
+      padding: 6px 14px;
+      border-radius: 8px;
+      background: rgba(18, 26, 38, 0.9);
+      border: 1px solid var(--border-subtle);
+      font-size: 13px;
+      color: #e2e8f0;
+      text-align: center;
+    }
+
+    /* Human Action Console */
+    .human-action-deck {
+      width: 100%;
+      background: rgba(24, 35, 52, 0.95);
+      border: 1.5px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: border-color 0.2s ease;
+    }
+
+    .human-action-deck.your-turn {
+      border-color: var(--accent-gold);
+      box-shadow: 0 0 18px rgba(245, 185, 66, 0.2);
+    }
+
+    .human-deck-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12.5px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .human-btn-row {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+    }
+
+    @media (max-width: 720px) {
+      .human-btn-row {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    .human-btn-row button {
+      padding: 11px 10px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .sizing-row {
+      display: grid;
+      grid-template-columns: 1fr 110px;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .preset-pills {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .error-banner {
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: rgba(239, 68, 68, 0.18);
+      border: 1px solid var(--accent-red);
+      color: #fecaca;
+      font-size: 12px;
+      display: none;
+    }
+
+    /* Lists & Tables */
+    .scroll-list {
+      overflow-y: auto;
+      max-height: 220px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      padding-right: 4px;
+    }
+
+    .feed-item {
+      padding: 6px 9px;
+      border-radius: 6px;
+      background: var(--bg-panel-alt);
+      border-left: 3px solid #475569;
+      font-size: 12px;
+      line-height: 1.35;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .feed-item.clickable {
+      cursor: pointer;
+    }
+
+    .feed-item.clickable:hover {
+      background: #233248;
+    }
+
+    .feed-item.selected-decision {
+      border-color: var(--accent-gold);
+      background: rgba(245, 185, 66, 0.14);
+    }
+
+    .feed-item.type-blind { border-left-color: #64748b; }
+    .feed-item.type-player_action { border-left-color: var(--accent-blue); }
+    .feed-item.type-street_deal {
+      border-left-color: var(--accent-gold);
+      background: rgba(245, 185, 66, 0.08);
+    }
+    .feed-item.type-showdown,
+    .feed-item.type-winner {
+      border-left-color: var(--accent-emerald);
+      background: rgba(24, 169, 116, 0.12);
+      font-weight: 600;
+    }
+
+    .feed-idx {
+      color: var(--text-muted);
+      font-size: 10.5px;
+      font-family: monospace;
+      white-space: nowrap;
+    }
+
+    /* Policy Inspector & Equity Bars */
+    .prob-row {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      margin-bottom: 6px;
+    }
+
+    .prob-label-line {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11.5px;
+    }
+
+    .prob-bar-track {
+      width: 100%;
+      height: 8px;
+      background: #0d1520;
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid #223044;
+    }
+
+    .prob-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent-blue), var(--accent-emerald));
+      border-radius: 999px;
+    }
+
+    .prob-bar-fill.chosen {
+      background: linear-gradient(90deg, var(--accent-gold), #f97316);
+    }
+
+    .kv-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      font-size: 11.5px;
+    }
+
+    .kv-box {
+      background: var(--bg-panel-alt);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      padding: 6px 8px;
+    }
+
+    .kv-box span {
+      display: block;
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    .kv-box strong {
+      font-size: 12.5px;
+      color: var(--text-main);
+    }
+
+    .code-snippet {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      background: #0b111a;
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      padding: 7px 9px;
+      color: #93c5fd;
+      word-break: break-all;
+      max-height: 90px;
+      overflow-y: auto;
+    }
+
+    .tier-badge {
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 10.5px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .tier-exact { background: rgba(24, 169, 116, 0.22); color: #4ade80; border: 1px solid #18a974; }
+    .tier-generalized { background: rgba(59, 130, 246, 0.22); color: #93c5fd; border: 1px solid #3b82f6; }
+    .tier-fallback { background: rgba(245, 185, 66, 0.22); color: #fcd34d; border: 1px solid #f5b942; }
+
+    .note-box {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px dashed var(--border-subtle);
+      border-radius: 6px;
+      padding: 7px 9px;
+      line-height: 1.4;
+    }
+
+    details.inspector-details summary {
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-main);
+      user-select: none;
+      padding: 4px 0;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="brand-logo">♠</div>
+      <div>
+        <h1>PokerLab Arena <span>Human vs Agent &amp; Policy Inspector</span></h1>
+      </div>
+    </div>
+    <div class="session-meta">
+      <span id="hdr-mode" class="badge mode-pill">BOT VS BOT</span>
+      <span>Hand #<strong id="hdr-hand">0</strong></span>
+      <span>Completed: <strong id="hdr-completed">0</strong></span>
+      <span>Seed: <strong id="hdr-seed">42</strong></span>
+      <span id="hdr-status" class="badge">IDLE</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Left Column: Setup, Playback Controls, Equity Panel & Match Stats -->
+    <div class="col-stack">
+      <section class="panel">
+        <div class="panel-title">
+          <span>Quick Mode &amp; Match Controls</span>
+        </div>
+
+        <div id="error-box" class="error-banner"></div>
+
+        <div class="row-3">
+          <button class="btn-sm btn-blue" onclick="applyQuickPreset('human_s1')">Human (S1) vs AI</button>
+          <button class="btn-sm btn-blue" onclick="applyQuickPreset('human_s2')">Human (S2) vs AI</button>
+          <button class="btn-sm" onclick="applyQuickPreset('bot_vs_bot')">Bot vs Bot</button>
+        </div>
+        <div class="row-2">
+          <button class="btn-sm btn-gold" onclick="applyQuickPreset('human_vs_harvey')">Human vs HarveySpecter</button>
+          <button class="btn-sm" onclick="applyQuickPreset('harvey_vs_mccfr')">Harvey vs MCCFR</button>
+        </div>
+
+        <div class="btn-grid">
+          <button id="btn-start" class="btn-primary" onclick="startHand()">Start Hand</button>
+          <button id="btn-newhand" onclick="newHand()">Next Hand</button>
+          <button id="btn-step" class="btn-gold" onclick="stepAction()">Step AI Action</button>
+          <button id="btn-pause" onclick="pauseGame()">Pause</button>
+          <button id="btn-resume" onclick="resumeGame()">Resume</button>
+          <button id="btn-reset" class="btn-danger" onclick="resetSession()">Reset Match</button>
+        </div>
+
+        <div class="control-group">
+          <label>
+            <span>Bot Playback Speed</span>
+            <span id="speed-label">800 ms / action</span>
+          </label>
+          <input
+            id="input-speed"
+            type="range"
+            min="100"
+            max="2500"
+            step="50"
+            value="800"
+            oninput="onSpeedInput(this.value)"
+            onchange="saveLiveSettings()"
+          />
+        </div>
+
+        <div class="control-group">
+          <label><span>Hole-Card Visibility Mode</span></label>
+          <select id="select-reveal" onchange="saveLiveSettings()">
+            <option value="showdown">Standard (Human Card Visible / Showdown Reveal)</option>
+            <option value="seat1">Reveal Seat 1 Only</option>
+            <option value="hidden">Hide All Hole Cards</option>
+            <option value="all">Debug / Research: Reveal All Cards</option>
+          </select>
+        </div>
+
+        <div class="panel-title" style="margin-top: 2px;">
+          <span>Seat &amp; Table Configuration</span>
+        </div>
+
+        <div class="row-2">
+          <div class="control-group">
+            <label><span>Seat 1 Name</span></label>
+            <input id="input-seat1-name" type="text" value="Seat 1" />
+          </div>
+          <div class="control-group">
+            <label><span>Seat 1 Controller</span></label>
+            <select id="select-seat1-agent" onchange="saveLiveSettings()"></select>
+          </div>
+        </div>
+
+        <div class="row-2">
+          <div class="control-group">
+            <label><span>Seat 2 Name</span></label>
+            <input id="input-seat2-name" type="text" value="Seat 2" />
+          </div>
+          <div class="control-group">
+            <label><span>Seat 2 Controller</span></label>
+            <select id="select-seat2-agent" onchange="saveLiveSettings()"></select>
+          </div>
+        </div>
+
+        <div class="row-2">
+          <div class="control-group">
+            <label><span>Starting Stack</span></label>
+            <input id="input-stack" type="number" min="10" max="100000" step="10" value="200" />
+          </div>
+          <div class="control-group">
+            <label><span>Random Seed</span></label>
+            <input id="input-seed" type="number" value="42" />
+          </div>
+        </div>
+
+        <div class="row-2">
+          <div class="control-group">
+            <label><span>Small Blind</span></label>
+            <input id="input-sb" type="number" min="1" value="1" />
+          </div>
+          <div class="control-group">
+            <label><span>Big Blind</span></label>
+            <input id="input-bb" type="number" min="2" value="2" />
+          </div>
+        </div>
+
+        <button onclick="resetSession()" style="width: 100%;">Apply Configuration &amp; Reset Match</button>
+      </section>
+
+      <!-- Equity Visualization Panel -->
+      <section class="panel">
+        <div class="panel-title">
+          <span>Equity Visualization</span>
+          <label style="font-size:11px;display:flex;align-items:center;gap:5px;cursor:pointer;text-transform:none;">
+            <input type="checkbox" id="chk-human-equity" checked onchange="saveLiveSettings()" />
+            <span>Human Est.</span>
+          </label>
+        </div>
+        <div id="equity-panel-body" class="note-box">
+          Start a hand to view Monte Carlo equity estimates.
+        </div>
+      </section>
+
+      <!-- Match Statistics Panel -->
+      <section class="panel">
+        <div class="panel-title">
+          <span>Match Statistics (Current Session)</span>
+        </div>
+        <div id="stats-panel-body" class="kv-grid"></div>
+        <div id="opp-dist-body" style="margin-top:4px;"></div>
+      </section>
+    </div>
+
+    <!-- Center Column: Poker Table & Interactive Human Controls -->
+    <section class="table-stage">
+      <div class="latest-action-banner" id="latest-action-banner">
+        Select seats or click <strong>Human (S1) vs AI</strong>, then click <strong>Start Hand</strong>.
+      </div>
+
+      <div class="poker-oval">
+        <!-- Top Seat (Seat 2) -->
+        <div id="seat-box-2" class="seat-box">
+          <div class="seat-info">
+            <div class="seat-header">
+              <span id="seat2-name" class="seat-name">Seat 2</span>
+              <span id="seat2-dealer" class="dealer-puck" style="display: none;">D</span>
+            </div>
+            <div id="seat2-agent" class="agent-pill">EquityAgent</div>
+            <div class="stack-line">Stack: <span id="seat2-stack">200</span></div>
+            <div id="seat2-badges" class="seat-badges"></div>
+          </div>
+          <div id="seat2-cards" class="cards-row"></div>
+        </div>
+
+        <div id="seat2-bet-pill" class="bet-chip-pill">Street Bet: 0</div>
+
+        <!-- Board & Main Pot -->
+        <div class="board-center">
+          <div class="pot-banner">
+            <span id="table-street" class="street-pill">IDLE</span>
+            <span>Main Pot: <strong id="table-pot">0</strong></span>
+          </div>
+          <div id="board-cards" class="cards-row"></div>
+        </div>
+
+        <div id="seat1-bet-pill" class="bet-chip-pill">Street Bet: 0</div>
+
+        <!-- Bottom Seat (Seat 1) -->
+        <div id="seat-box-1" class="seat-box">
+          <div class="seat-info">
+            <div class="seat-header">
+              <span id="seat1-name" class="seat-name">Seat 1</span>
+              <span id="seat1-dealer" class="dealer-puck" style="display: none;">D</span>
+            </div>
+            <div id="seat1-agent" class="agent-pill">HeuristicAgent</div>
+            <div class="stack-line">Stack: <span id="seat1-stack">200</span></div>
+            <div id="seat1-badges" class="seat-badges"></div>
+          </div>
+          <div id="seat1-cards" class="cards-row"></div>
+        </div>
+      </div>
+
+      <!-- Interactive Human Action Bar -->
+      <div id="human-action-deck" class="human-action-deck">
+        <div class="human-deck-header">
+          <div>
+            <strong id="human-turn-banner">Waiting for hand / turn…</strong>
+          </div>
+          <div style="color:var(--text-muted);">
+            To Call: <strong id="human-to-call" style="color:var(--text-main);">0</strong> |
+            Min/Max Target: <strong id="human-minmax" style="color:var(--accent-gold);">—</strong>
+          </div>
+        </div>
+
+        <div class="human-btn-row">
+          <button id="btn-act-fold" class="btn-danger" onclick="submitHumanAction('fold')" disabled>Fold</button>
+          <button id="btn-act-check" onclick="submitHumanAction('check')" disabled>Check</button>
+          <button id="btn-act-call" class="btn-primary" onclick="submitHumanAction('call')" disabled>Call</button>
+          <button id="btn-act-size" class="btn-gold" onclick="submitSizedHumanAction()" disabled>Bet / Raise</button>
+          <button id="btn-act-allin" class="btn-danger" onclick="submitHumanAction('all_in')" disabled>All-In</button>
+        </div>
+
+        <div class="sizing-row">
+          <input
+            id="input-bet-slider"
+            type="range"
+            min="2"
+            max="200"
+            step="1"
+            value="4"
+            oninput="syncBetAmount(this.value)"
+            disabled
+          />
+          <input
+            id="input-bet-number"
+            type="number"
+            min="2"
+            max="200"
+            step="1"
+            value="4"
+            oninput="syncBetAmount(this.value)"
+            disabled
+          />
+        </div>
+
+        <div id="human-preset-pills" class="preset-pills"></div>
+      </div>
+
+      <div class="session-meta" style="width: 100%; justify-content: space-between; padding: 0 6px;">
+        <span>Current Turn: <strong id="footer-turn">—</strong></span>
+        <span>Score: <strong id="footer-score">0 - 0 (Ties: 0)</strong></span>
+      </div>
+    </section>
+
+    <!-- Right Column: Collapsible Policy Inspector, Decision Timeline & Action Log -->
+    <div class="col-stack">
+      <section class="panel">
+        <details class="inspector-details" open>
+          <summary>Policy Inspector (AI Decision Telemetry)</summary>
+          <div id="inspector-body" style="margin-top:10px;display:flex;flex-direction:column;gap:10px;max-height:380px;overflow-y:auto;padding-right:4px;">
+            <div class="note-box">
+              When an AI agent acts, its genuine policy distribution, lookup tier, or equity telemetry appears here. Click any entry in the Decision Timeline below to inspect historical snapshots.
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <section class="panel">
+        <details class="inspector-details" open>
+          <summary>HarveySpecter Opponent Intelligence &amp; Bayesian Range Explorer</summary>
+          <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+            <button type="button" class="btn-sm btn-danger" onclick="resetOpponentModel()">Reset Opponent Model</button>
+            <button type="button" class="btn-sm" onclick="exportOpponentProfile()">Export Profile JSON</button>
+            <button type="button" class="btn-sm" onclick="promptImportOpponentProfile()">Import Profile JSON</button>
+          </div>
+          <div id="opponent-intel-body" style="margin-top:8px;display:flex;flex-direction:column;gap:8px;max-height:420px;overflow-y:auto;padding-right:4px;">
+            <div class="note-box">
+              Play hands to populate live opponent behavioral statistics, archetype probabilities, and Bayesian hand range posteriors.
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">
+          <span>Decision Timeline (Click to Inspect)</span>
+          <span id="decision-count" class="feed-idx">0 decisions</span>
+        </div>
+        <div id="decision-timeline" class="scroll-list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">
+          <span>Chronological Hand Action Log</span>
+          <span id="log-count" class="feed-idx">0 events</span>
+        </div>
+        <div id="action-feed" class="scroll-list"></div>
+      </section>
+
+      <section class="panel">
+        <details class="inspector-details">
+          <summary>Solver Compatibility Reference</summary>
+          <div id="compat-list" style="margin-top:8px;display:flex;flex-direction:column;gap:6px;font-size:11.5px;"></div>
+        </details>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    let currentState = null;
+    let selectedDecisionId = null;
+    let isRequestInFlight = false;
+    let playbackTimer = null;
+
+    async function apiCall(method, path, body = null) {
+      const opts = {
+        method,
+        headers: { "Content-Type": "application/json" },
+      };
+      if (body !== null) {
+        opts.body = JSON.stringify(body);
+      }
+      const res = await fetch(path, opts);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      return data;
+    }
+
+    function showError(msg) {
+      const box = document.getElementById("error-box");
+      if (!msg) {
+        box.style.display = "none";
+        box.textContent = "";
+      } else {
+        box.style.display = "block";
+        box.textContent = msg;
+      }
+    }
+
+    function renderCard(card) {
+      if (!card) {
+        return `<div class="playing-card card-slot"></div>`;
+      }
+      if (card.hidden) {
+        return `<div class="playing-card card-hidden" title="Hidden Hole Card">??</div>`;
+      }
+      const colorClass = `card-${card.color || "dark"}`;
+      return `
+        <div class="playing-card ${colorClass}">
+          <div class="card-corner">${card.rank_label}${card.suit_symbol}</div>
+          <div class="card-center-suit">${card.suit_symbol}</div>
+          <div class="card-corner" style="align-self: flex-end;">${card.rank_label}</div>
+        </div>
+      `;
+    }
+
+    function renderSeat(seat, idx) {
+      const box = document.getElementById(`seat-box-${idx}`);
+      box.className = "seat-box" +
+        (seat.is_current_player ? " active-turn" : "") +
+        (seat.is_human ? " human-seat" : "") +
+        (seat.is_folded ? " folded" : "");
+
+      document.getElementById(`seat${idx}-name`).textContent = seat.name;
+      document.getElementById(`seat${idx}-agent`).textContent = seat.agent_name;
+      const netSign = seat.net_chips >= 0 ? `+${seat.net_chips}` : `${seat.net_chips}`;
+      document.getElementById(`seat${idx}-stack`).textContent = `${seat.stack} chips (Net: ${netSign})`;
+      document.getElementById(`seat${idx}-dealer`).style.display = seat.is_button ? "inline-flex" : "none";
+      document.getElementById(`seat${idx}-bet-pill`).textContent =
+        `Street Bet: ${seat.current_bet} (Committed: ${seat.total_committed})`;
+
+      const badges = [];
+      if (seat.is_human) {
+        badges.push(`<span class="mini-tag human">HUMAN</span>`);
+      }
+      if (seat.is_current_player) {
+        badges.push(`<span class="mini-tag turn">${seat.is_human ? "YOUR TURN" : "ACTING"}</span>`);
+      }
+      if (seat.is_all_in) {
+        badges.push(`<span class="mini-tag allin">ALL-IN</span>`);
+      }
+      if (seat.is_folded) {
+        badges.push(`<span class="mini-tag folded">FOLDED</span>`);
+      }
+      if (seat.winnings > 0) {
+        badges.push(`<span class="mini-tag winner">WON +${seat.winnings}</span>`);
+      }
+      if (seat.hand_category) {
+        badges.push(`<span class="mini-tag" style="background:#334155;color:#f8fafc;">${seat.hand_category}</span>`);
+      }
+      document.getElementById(`seat${idx}-badges`).innerHTML = badges.join("");
+      document.getElementById(`seat${idx}-cards`).innerHTML =
+        seat.hole_cards.map(renderCard).join("");
+    }
+
+    function syncBetAmount(val) {
+      const slider = document.getElementById("input-bet-slider");
+      const num = document.getElementById("input-bet-number");
+      slider.value = val;
+      num.value = val;
+      if (currentState && currentState.human_controls && currentState.human_controls.sizing_mode) {
+        const mode = currentState.human_controls.sizing_mode === "bet" ? "Bet" : "Raise To";
+        document.getElementById("btn-act-size").textContent = `${mode} ${val}`;
+      }
+    }
+
+    function renderHumanControls(hc) {
+      const deck = document.getElementById("human-action-deck");
+      const banner = document.getElementById("human-turn-banner");
+      const toCallEl = document.getElementById("human-to-call");
+      const minMaxEl = document.getElementById("human-minmax");
+
+      const btnFold = document.getElementById("btn-act-fold");
+      const btnCheck = document.getElementById("btn-act-check");
+      const btnCall = document.getElementById("btn-act-call");
+      const btnSize = document.getElementById("btn-act-size");
+      const btnAllIn = document.getElementById("btn-act-allin");
+      const slider = document.getElementById("input-bet-slider");
+      const numInput = document.getElementById("input-bet-number");
+      const presetsEl = document.getElementById("human-preset-pills");
+
+      toCallEl.textContent = `${hc.to_call} chips`;
+      if (hc.min_amount !== null && hc.max_amount !== null) {
+        minMaxEl.textContent = `${hc.min_amount} – ${hc.max_amount} chips`;
+      } else {
+        minMaxEl.textContent = "—";
+      }
+
+      if (!hc.is_human_turn) {
+        deck.className = "human-action-deck";
+        banner.textContent = currentState && currentState.has_human_player
+          ? (currentState.hand_complete ? "Hand complete — click Next Hand" : "Waiting for opponent / start of hand…")
+          : "Bot-vs-Bot mode active (select Human Player on Seat 1 or Seat 2 to play interactively)";
+        btnFold.disabled = true;
+        btnCheck.disabled = true;
+        btnCall.disabled = true;
+        btnSize.disabled = true;
+        btnAllIn.disabled = true;
+        slider.disabled = true;
+        numInput.disabled = true;
+        presetsEl.innerHTML = "";
+        return;
+      }
+
+      deck.className = "human-action-deck your-turn";
+      banner.textContent = `Your Turn (${hc.acting_player}) — Choose an action:`;
+
+      btnFold.disabled = !hc.can_fold || isRequestInFlight;
+      btnCheck.disabled = !hc.can_check || isRequestInFlight;
+      btnCall.disabled = !hc.can_call || isRequestInFlight;
+      btnCall.textContent = hc.can_call ? `Call ${hc.call_amount}` : "Call";
+
+      if (hc.can_bet || hc.can_raise) {
+        btnSize.disabled = isRequestInFlight;
+        slider.disabled = isRequestInFlight;
+        numInput.disabled = isRequestInFlight;
+        slider.min = hc.min_amount;
+        slider.max = hc.max_amount;
+        numInput.min = hc.min_amount;
+        numInput.max = hc.max_amount;
+        const defaultTarget = hc.default_amount || hc.min_amount;
+        slider.value = defaultTarget;
+        numInput.value = defaultTarget;
+        const labelPrefix = hc.sizing_mode === "bet" ? "Bet" : "Raise To";
+        btnSize.textContent = `${labelPrefix} ${defaultTarget}`;
+
+        const halfPotTarget = Math.min(
+          hc.max_amount,
+          Math.max(hc.min_amount, hc.current_bet + Math.floor((hc.pot + hc.to_call) * 0.5))
+        );
+        const potTarget = Math.min(
+          hc.max_amount,
+          Math.max(hc.min_amount, hc.current_bet + (hc.pot + hc.to_call))
+        );
+        const disAttr = isRequestInFlight ? "disabled" : "";
+        presetsEl.innerHTML = `
+          <button type="button" class="btn-sm" ${disAttr} onclick="syncBetAmount(${hc.min_amount})">Min (${hc.min_amount})</button>
+          <button type="button" class="btn-sm" ${disAttr} onclick="syncBetAmount(${halfPotTarget})">1/2 Pot (${halfPotTarget})</button>
+          <button type="button" class="btn-sm" ${disAttr} onclick="syncBetAmount(${potTarget})">Pot (${potTarget})</button>
+          <button type="button" class="btn-sm" ${disAttr} onclick="syncBetAmount(${hc.max_amount})">Max (${hc.max_amount})</button>
+        `;
+      } else {
+        btnSize.disabled = true;
+        btnSize.textContent = "Bet / Raise";
+        slider.disabled = true;
+        numInput.disabled = true;
+        presetsEl.innerHTML = "";
+      }
+
+      btnAllIn.disabled = !hc.can_all_in || isRequestInFlight;
+      btnAllIn.textContent = hc.can_all_in ? `All-In (${hc.all_in_to})` : "All-In";
+    }
+
+    function renderEquityPanel(eqPanel) {
+      const container = document.getElementById("equity-panel-body");
+      document.getElementById("chk-human-equity").checked = Boolean(eqPanel.human_equity_enabled);
+      const parts = [];
+
+      if (eqPanel.human_equity) {
+        const he = eqPanel.human_equity;
+        if (!he.enabled) {
+          parts.push(`<div><strong>Human Public Equity:</strong> Disabled by user.</div>`);
+        } else {
+          const pct = (he.equity * 100).toFixed(1);
+          const ciLow = (he.confidence_interval[0] * 100).toFixed(1);
+          const ciHigh = (he.confidence_interval[1] * 100).toFixed(1);
+          parts.push(`
+            <div style="margin-bottom:8px;">
+              <div style="display:flex;justify-content:space-between;font-size:12px;">
+                <strong>${he.player} Hand Equity (Approx.)</strong>
+                <strong style="color:var(--accent-emerald);">${pct}%</strong>
+              </div>
+              <div class="prob-bar-track" style="margin:4px 0;">
+                <div class="prob-bar-fill" style="width:${Math.min(100, Math.max(0, pct))}%;"></div>
+              </div>
+              <div style="font-size:10.5px;color:var(--text-muted);">
+                Win: ${(he.win_probability * 100).toFixed(1)}% | Tie: ${(he.tie_probability * 100).toFixed(1)}% |
+                Loss: ${(he.loss_probability * 100).toFixed(1)}%<br/>
+                95% CI: [${ciLow}%, ${ciHigh}%] (${he.simulations} MC rollouts vs. uniform random range)
+              </div>
+            </div>
+          `);
+        }
+      }
+
+      if (eqPanel.ai_equity_telemetry) {
+        const ae = eqPanel.ai_equity_telemetry;
+        const pct = ((ae.equity || 0) * 100).toFixed(1);
+        if (ae.method === "bayesian_range_monte_carlo") {
+          const uniPct = ((ae.uniform_equity || 0) * 100).toFixed(1);
+          const lamPct = ((ae.lambda_value || 0) * 100).toFixed(1);
+          parts.push(`
+            <div style="border-top:1px solid var(--border-subtle);padding-top:6px;">
+              <div style="display:flex;justify-content:space-between;font-size:12px;">
+                <strong>${ae.player} (HarveySpecter Range Equity)</strong>
+                <strong style="color:var(--accent-gold);">${pct}% (vs Unif: ${uniPct}%)</strong>
+              </div>
+              <div style="font-size:10.5px;color:var(--text-muted);">
+                Decision #${ae.decision_id} (${ae.street}): λ = ${lamPct}% | Est. Fold Prob: ${((ae.estimated_fold_prob || 0) * 100).toFixed(1)}%
+              </div>
+            </div>
+          `);
+        } else {
+          parts.push(`
+            <div style="border-top:1px solid var(--border-subtle);padding-top:6px;">
+              <div style="display:flex;justify-content:space-between;font-size:12px;">
+                <strong>${ae.player} (EquityAgent Telemetry)</strong>
+                <strong style="color:var(--accent-gold);">${pct}%</strong>
+              </div>
+              <div style="font-size:10.5px;color:var(--text-muted);">
+                Decision #${ae.decision_id} (${ae.street}): ${ae.simulations} samples, seed ${ae.rollout_seed}
+              </div>
+            </div>
+          `);
+        }
+      } else if (eqPanel.ai_note) {
+        parts.push(`
+          <div style="border-top:1px solid var(--border-subtle);padding-top:6px;font-size:11px;color:var(--text-muted);">
+            <strong>AI Equity Note:</strong> ${eqPanel.ai_note}
+          </div>
+        `);
+      }
+
+      container.innerHTML = parts.length > 0
+        ? parts.join("")
+        : "Start a hand to view Monte Carlo equity telemetry.";
+    }
+
+    function renderMatchStats(stats, seats) {
+      const container = document.getElementById("stats-panel-body");
+      const s1 = seats[0].name;
+      const s2 = seats[1].name;
+      const n1 = stats.net_chips[s1] >= 0 ? `+${stats.net_chips[s1]}` : `${stats.net_chips[s1]}`;
+      const n2 = stats.net_chips[s2] >= 0 ? `+${stats.net_chips[s2]}` : `${stats.net_chips[s2]}`;
+
+      container.innerHTML = `
+        <div class="kv-box"><span>Hands Played</span><strong>${stats.hands_played}</strong></div>
+        <div class="kv-box"><span>Avg Pot Size</span><strong>${stats.average_pot_size} chips</strong></div>
+        <div class="kv-box"><span>${s1} W / L / Net</span><strong>${stats.hands_won[s1]}W / ${stats.hands_lost[s1]}L (${n1})</strong></div>
+        <div class="kv-box"><span>${s2} W / L / Net</span><strong>${stats.hands_won[s2]}W / ${stats.hands_lost[s2]}L (${n2})</strong></div>
+        <div class="kv-box"><span>${s1} Win Rate</span><strong>${(stats.win_rate[s1] * 100).toFixed(1)}%</strong></div>
+        <div class="kv-box"><span>Showdown / Fold %</span><strong>${(stats.showdown_frequency * 100).toFixed(0)}% / ${(stats.fold_frequency * 100).toFixed(0)}%</strong></div>
+      `;
+
+      const opp = stats.opponent_player;
+      const dist = stats.opponent_action_distribution || {};
+      const counts = stats.opponent_action_counts || {};
+      const entries = Object.keys(dist).map((k) => `${k}: ${counts[k] || 0} (${((dist[k] || 0) * 100).toFixed(0)}%)`);
+      document.getElementById("opp-dist-body").innerHTML = `
+        <div class="note-box" style="font-size:11px;">
+          <strong>${opp} Action Distribution:</strong><br/>
+          ${entries.join(" · ")}
+        </div>
+      `;
+    }
+
+    function renderInspector(decision) {
+      const body = document.getElementById("inspector-body");
+      if (!decision) {
+        body.innerHTML = `
+          <div class="note-box">
+            No AI decision selected yet. Play or step an action to capture live agent telemetry.
+          </div>
+        `;
+        return;
+      }
+
+      const t = decision.telemetry || {};
+      const ctx = decision.public_context || {};
+      const headerHtml = `
+        <div class="kv-grid">
+          <div class="kv-box">
+            <span>Decision #${decision.decision_id} (Hand #${decision.hand_number})</span>
+            <strong>${decision.player} (${decision.agent_name})</strong>
+          </div>
+          <div class="kv-box">
+            <span>Street / Chosen Action</span>
+            <strong style="color:var(--accent-gold);">${decision.street.toUpperCase()} — ${decision.chosen_action.text}</strong>
+          </div>
+          <div class="kv-box">
+            <span>Public Pot / To Call</span>
+            <strong>${ctx.pot} chips / ${ctx.to_call} to call (Odds: ${(ctx.pot_odds * 100).toFixed(1)}%)</strong>
+          </div>
+          <div class="kv-box">
+            <span>Effective Stack / Position</span>
+            <strong>${ctx.effective_stack} chips (${ctx.in_position ? "In Position" : "Out of Position"})</strong>
+          </div>
+        </div>
+      `;
+
+      let agentSpecificHtml = "";
+
+      if (t.agent_type === "HarveySpecterAgent") {
+        const tier = t.lookup_tier || "fallback";
+        const lamPct = ((t.lambda_value ?? 0) * 100).toFixed(1);
+        const confPct = ((t.evidence_confidence ?? 0) * 100).toFixed(1);
+        const uncPct = ((t.uncertainty ?? 0) * 100).toFixed(1);
+        const stabPct = ((t.stability_score ?? 1) * 100).toFixed(1);
+        const rangeEqPct = ((t.hero_range_equity ?? 0.5) * 100).toFixed(1);
+        const unifEqPct = ((t.hero_uniform_equity ?? 0.5) * 100).toFixed(1);
+        const foldPct = ((t.estimated_fold_prob ?? 0.4) * 100).toFixed(1);
+        const mccfrProbs = t.mccfr_probabilities || [];
+        const exploitProbs = t.exploit_probabilities || [];
+        const finalProbs = t.final_probabilities || t.action_probabilities || [];
+        const evs = t.action_expected_values || {};
+        const reasons = t.adjustment_reasons || [];
+
+        const compRows = finalProbs.map((fp, idx) => {
+          const mp = mccfrProbs[idx] || { probability: 0 };
+          const ep = exploitProbs[idx] || { probability: 0 };
+          const mVal = ((mp.probability || 0) * 100).toFixed(1);
+          const eVal = ((ep.probability || 0) * 100).toFixed(1);
+          const fVal = ((fp.probability || 0) * 100).toFixed(1);
+          const evChip = evs[fp.label] !== undefined ? ` (EV: ${evs[fp.label] >= 0 ? "+" : ""}${evs[fp.label]})` : "";
+          return `
+            <div style="font-size:11px;padding:4px 0;border-bottom:1px solid var(--border-subtle);">
+              <div style="display:flex;justify-content:space-between;">
+                <strong>${fp.is_chosen ? "★ " : ""}${fp.label}${evChip}</strong>
+                <span>MCCFR: <strong>${mVal}%</strong> · Exploit: <strong style="color:var(--accent-gold);">${eVal}%</strong> → Final: <strong style="color:var(--accent-emerald);">${fVal}%</strong></span>
+              </div>
+              <div class="prob-bar-track" style="margin-top:3px;">
+                <div class="prob-bar-fill ${fp.is_chosen ? "chosen" : ""}" style="width:${Math.min(100, Math.max(0, fVal))}%;"></div>
+              </div>
+            </div>
+          `;
+        }).join("");
+
+        agentSpecificHtml += `
+          <div class="note-box" style="border-color:rgba(245,158,11,0.45);background:rgba(245,158,11,0.08);color:var(--text-main);">
+            <strong style="color:var(--accent-gold);">Decision Explanation (Grounded):</strong><br/>
+            ${t.explanation || "—"}
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:11.5px;color:var(--text-muted);">MCCFR Base Tier / Mode:</span>
+            <span class="tier-badge tier-${tier}">${tier} · mode=${t.lambda_mode || "adaptive"}</span>
+          </div>
+          <div class="kv-grid">
+            <div class="kv-box">
+              <span>Exploitation Coeff (λ)</span>
+              <strong style="color:var(--accent-gold);">λ = ${lamPct}% (Max: ${((t.max_lambda ?? 0.8) * 100).toFixed(0)}%)</strong>
+            </div>
+            <div class="kv-box">
+              <span>Confidence / Uncertainty</span>
+              <strong>${confPct}% / ${uncPct}% (Stab: ${stabPct}%)</strong>
+            </div>
+            <div class="kv-box">
+              <span>Hero Eq vs Bayesian Range</span>
+              <strong style="color:var(--accent-emerald);">${rangeEqPct}% (vs Unif: ${unifEqPct}%)</strong>
+            </div>
+            <div class="kv-box">
+              <span>Est. Fold Prob / Pot Odds</span>
+              <strong>${foldPct}% / ${((t.pot_odds ?? 0) * 100).toFixed(1)}%</strong>
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+            Exploitative Strategy Mixture: π_final = (1 - λ)·π_MCCFR + λ·π_exploit
+          </div>
+          <div class="code-snippet" style="max-height:170px;">${compRows}</div>
+          ${reasons.length > 0 ? `
+            <div class="note-box" style="font-size:10.5px;">
+              <strong>Adjustment Breakdown:</strong><br/>
+              • ${reasons.join("<br/>• ")}
+            </div>
+          ` : ""}
+        `;
+      } else if (t.agent_type === "AbstractHUNLAgent") {
+        const tier = t.lookup_tier || "fallback";
+        const ent = t.strategy_entropy || {};
+        agentSpecificHtml += `
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:11.5px;color:var(--text-muted);">MCCFR Lookup Tier (Direct Telemetry):</span>
+            <span class="tier-badge tier-${tier}">${tier} (${t.lookup_subtier || tier})</span>
+          </div>
+          <div class="kv-grid">
+            <div class="kv-box">
+              <span>Shannon Entropy (Derived)</span>
+              <strong>${ent.entropy_bits ?? 0} bits (Norm: ${((ent.normalized_entropy ?? 0) * 100).toFixed(1)}%)</strong>
+            </div>
+            <div class="kv-box">
+              <span>Private Bucket Key</span>
+              <strong>${t.private_bucket || "—"}</strong>
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);">Matched Abstraction Key:</div>
+          <div class="code-snippet">${t.matched_abstraction_key || t.public_information_set_summary || ""}</div>
+        `;
+      } else if (t.agent_type === "EquityAgent" && t.equity_estimate) {
+        const eq = t.equity_estimate;
+        const th = t.thresholds || {};
+        const evs = t.static_pot_odds_ev_chips || {};
+        const evParts = Object.entries(evs).map(([k, v]) => `${k.toUpperCase()}: ${v >= 0 ? "+" : ""}${v} chips`);
+        agentSpecificHtml += `
+          <div class="kv-grid">
+            <div class="kv-box">
+              <span>MC Equity (Direct, ${eq.simulations} sims)</span>
+              <strong style="color:var(--accent-emerald);">${(eq.equity * 100).toFixed(2)}% (Seed: ${eq.rollout_seed})</strong>
+            </div>
+            <div class="kv-box">
+              <span>95% Hoeffding CI</span>
+              <strong>[${(eq.confidence_interval[0] * 100).toFixed(1)}%, ${(eq.confidence_interval[1] * 100).toFixed(1)}%]</strong>
+            </div>
+            <div class="kv-box">
+              <span>Call Threshold / Value Bet</span>
+              <strong>${(th.required_call_equity * 100).toFixed(1)}% / ${(th.value_bet_equity * 100).toFixed(1)}%</strong>
+            </div>
+            <div class="kv-box">
+              <span>1-Step Static EV (Derived)</span>
+              <strong>${evParts.join(" | ") || "—"}</strong>
+            </div>
+          </div>
+        `;
+      } else if (t.agent_type === "HeuristicAgent" && t.heuristic_signals) {
+        const hs = t.heuristic_signals;
+        agentSpecificHtml += `
+          <div class="kv-grid">
+            <div class="kv-box">
+              <span>Raw / Decision Strength (Direct)</span>
+              <strong>${hs.raw_strength} → ${hs.decision_strength}</strong>
+            </div>
+            <div class="kv-box">
+              <span>Flush/Straight Draw Detected</span>
+              <strong>${hs.has_draw ? "Yes" : "No"} (Pressure: ${hs.recent_pressure_actions})</strong>
+            </div>
+            <div class="kv-box">
+              <span>Required Call Strength</span>
+              <strong>${hs.required_call_strength}</strong>
+            </div>
+            <div class="kv-box">
+              <span>Value Bet / Raise Thresholds</span>
+              <strong>${hs.value_bet_strength} / ${hs.strong_raise_strength}</strong>
+            </div>
+          </div>
+        `;
+      } else if (t.agent_type === "RandomAgent" && t.sampling_info) {
+        const si = t.sampling_info;
+        const ent = t.strategy_entropy || {};
+        agentSpecificHtml += `
+          <div class="kv-grid">
+            <div class="kv-box">
+              <span>Sampling Rule (Direct)</span>
+              <strong>Uniform (${si.legal_action_count} actions @ ${(si.uniform_probability * 100).toFixed(1)}%)</strong>
+            </div>
+            <div class="kv-box">
+              <span>Entropy / Agent Seed</span>
+              <strong>${ent.entropy_bits ?? 0} bits (Seed: ${si.agent_seed ?? "—"})</strong>
+            </div>
+          </div>
+        `;
+      }
+
+      const probs = t.action_probabilities || [];
+      let probsHtml = "";
+      if (probs.length > 0) {
+        probsHtml = `
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Policy Action Probabilities:</div>
+          <div>
+            ${probs.map((p) => {
+              const pct = (p.probability * 100).toFixed(1);
+              return `
+                <div class="prob-row">
+                  <div class="prob-label-line">
+                    <span>${p.is_chosen ? "★ " : ""}${p.label}</span>
+                    <strong>${pct}%</strong>
+                  </div>
+                  <div class="prob-bar-track">
+                    <div class="prob-bar-fill ${p.is_chosen ? "chosen" : ""}" style="width:${Math.min(100, Math.max(0, pct))}%;"></div>
+                  </div>
+                </div>
+              `;
+            }).join("")}
+          </div>
+        `;
+      }
+
+      const unavailable = t.unavailable_fields || [];
+      const unavailableHtml = unavailable.length > 0
+        ? `
+          <div class="note-box" style="font-size:10.5px;">
+            <strong>Unavailable / Not Computed by Agent:</strong><br/>
+            • ${unavailable.join("<br/>• ")}
+          </div>
+        `
+        : "";
+
+      body.innerHTML = headerHtml + agentSpecificHtml + (t.agent_type === "HarveySpecterAgent" ? "" : probsHtml) + unavailableHtml;
+    }
+
+    function renderOpponentIntelligence(intel) {
+      const container = document.getElementById("opponent-intel-body");
+      if (!container) return;
+      if (!intel || !intel.opponent_profile) {
+        container.innerHTML = `<div class="note-box">No opponent intelligence available yet.</div>`;
+        return;
+      }
+
+      const prof = intel.opponent_profile;
+      const arch = intel.archetype_classification || {};
+      const br = intel.bayesian_range || {};
+
+      const fmtStat = (metric) => {
+        if (!metric) return "—";
+        const sm = ((metric.smoothed_value || 0) * 100).toFixed(0);
+        const raw = metric.raw_value !== null && metric.raw_value !== undefined
+          ? `${(metric.raw_value * 100).toFixed(0)}%`
+          : "n/a";
+        return `${sm}% <span style="color:var(--text-muted);font-weight:400;">(${metric.successes}/${metric.trials}, raw ${raw})</span>`;
+      };
+
+      const archProbs = arch.probabilities || {};
+      const archLabels = arch.labels || {};
+      const sortedArch = Object.keys(archProbs).sort((a, b) => (archProbs[b] || 0) - (archProbs[a] || 0));
+      const archHtml = sortedArch.map((k) => {
+        const pct = ((archProbs[k] || 0) * 100).toFixed(1);
+        const isTop = k === arch.most_likely;
+        return `
+          <div style="margin-bottom:4px;">
+            <div style="display:flex;justify-content:space-between;font-size:11px;">
+              <span>${isTop ? "★ " : ""}${archLabels[k] || k}</span>
+              <strong>${pct}%</strong>
+            </div>
+            <div class="prob-bar-track">
+              <div class="prob-bar-fill ${isTop ? "chosen" : ""}" style="width:${Math.min(100, Math.max(0, pct))}%;"></div>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      const topClasses = (br.top_classes || []).slice(0, 8);
+      const classRows = topClasses.map((c) => {
+        const prPct = ((c.prior_probability || 0) * 100).toFixed(2);
+        const poPct = ((c.posterior_probability || 0) * 100).toFixed(2);
+        const delta = (c.probability_delta || 0) * 100;
+        const deltaStr = delta >= 0 ? `+${delta.toFixed(2)}%` : `${delta.toFixed(2)}%`;
+        return `
+          <div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;border-bottom:1px solid var(--border-subtle);">
+            <span><strong>${c.hand_class}</strong> (${c.combo_count} combos, str ${(c.mean_strength * 100).toFixed(0)}%)</span>
+            <span>Prior ${prPct}% → <strong>Post ${poPct}%</strong> (${deltaStr})</span>
+          </div>
+        `;
+      }).join("");
+
+      const topCombos = (br.top_combos || []).slice(0, 6).map((c) =>
+        `${c.combo_label} (${((c.posterior_probability || 0) * 100).toFixed(2)}%)`
+      ).join(" · ");
+
+      const updates = br.action_updates || [];
+      const updateRows = updates.length > 0
+        ? updates.map((u) => `<div style="font-size:10.5px;">#${u.step_index} ${u.description}</div>`).join("")
+        : `<div style="font-size:10.5px;color:var(--text-muted);">No opponent actions observed in the current hand yet (uniform prior active).</div>`;
+
+      container.innerHTML = `
+        <div class="note-box" style="font-size:11px;">
+          <strong>Profiled Opponent: ${intel.target_player}</strong> (Observed by ${intel.observer_player} · ${prof.hands_observed} hands, ${prof.showdowns_observed} showdowns)<br/>
+          ${arch.summary || ""}
+        </div>
+
+        <div style="font-size:11px;color:var(--text-muted);font-weight:700;">1. Behavioural Profile (Smoothed + Sample Counts):</div>
+        <div class="kv-grid">
+          <div class="kv-box"><span>VPIP / PFR</span><strong>${fmtStat(prof.vpip)} / ${fmtStat(prof.pfr)}</strong></div>
+          <div class="kv-box"><span>VPIP - PFR Gap</span><strong>${((prof.vpip_minus_pfr || 0) * 100).toFixed(1)}%</strong></div>
+          <div class="kv-box"><span>3-Bet / Fold to 3-Bet</span><strong>${fmtStat(prof.three_bet_freq)} / ${fmtStat(prof.fold_to_three_bet)}</strong></div>
+          <div class="kv-box"><span>C-Bet / Fold to C-Bet</span><strong>${fmtStat(prof.cbet_freq)} / ${fmtStat(prof.fold_to_cbet)}</strong></div>
+          <div class="kv-box"><span>Aggression Freq / AF</span><strong>${fmtStat(prof.aggression_frequency)} / AF ${(prof.aggression_factor || 1).toFixed(2)}</strong></div>
+          <div class="kv-box"><span>Fold to Bet / River Bet</span><strong>${fmtStat(prof.fold_to_bet)} / ${fmtStat(prof.fold_to_river_bet)}</strong></div>
+          <div class="kv-box"><span>WTSD / WTSD|Flop</span><strong>${fmtStat(prof.showdown_frequency)} / ${fmtStat(prof.wtsd_when_saw_flop)}</strong></div>
+          <div class="kv-box"><span>Won at Showdown (W$SD)</span><strong>${fmtStat(prof.won_at_showdown)}</strong></div>
+          <div class="kv-box"><span>BTN VPIP / PFR</span><strong>${fmtStat(prof.vpip_button)} / ${fmtStat(prof.pfr_button)}</strong></div>
+          <div class="kv-box"><span>BB VPIP / PFR</span><strong>${fmtStat(prof.vpip_big_blind)} / ${fmtStat(prof.pfr_big_blind)}</strong></div>
+        </div>
+
+        <div style="font-size:11px;color:var(--text-muted);font-weight:700;">
+          2. Archetype Probabilities (Confidence: ${((arch.confidence || 0) * 100).toFixed(0)}%):
+        </div>
+        <div class="code-snippet" style="max-height:150px;">${archHtml}</div>
+
+        <div style="font-size:11px;color:var(--text-muted);font-weight:700;">
+          3. Bayesian Range Explorer (${br.active_combo_count || 0} active combos, Prior Mean Str ${((br.prior_mean_strength || 0) * 100).toFixed(1)}% → Posterior ${((br.posterior_mean_strength || 0) * 100).toFixed(1)}%, TV Shift ${((br.l1_shift_from_prior || 0) * 100).toFixed(1)}%):
+        </div>
+        <div class="code-snippet" style="max-height:145px;">
+          ${classRows}
+          <div style="margin-top:4px;font-size:10.5px;color:var(--text-muted);">
+            <strong>Top Specific Combos:</strong> ${topCombos || "—"}
+          </div>
+        </div>
+        <div class="note-box" style="font-size:10.5px;">
+          <strong>Intra-Hand Bayesian Range Updates:</strong>
+          ${updateRows}
+        </div>
+      `;
+    }
+
+    async function resetOpponentModel() {
+      try {
+        const state = await apiCall("POST", "/api/opponent-profile/reset", {});
+        renderState(state);
+      } catch (err) {
+        showError(err.message);
+      }
+    }
+
+    async function exportOpponentProfile() {
+      try {
+        const res = await apiCall("GET", "/api/opponent-profile?export=true");
+        const blob = new Blob([JSON.stringify(res.profile, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `harvey_profile_${res.opponent_id || "opponent"}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        showError(err.message);
+      }
+    }
+
+    async function promptImportOpponentProfile() {
+      const raw = window.prompt("Paste exported HarveySpecter Opponent Profile JSON:");
+      if (!raw || !raw.trim()) return;
+      try {
+        const parsed = JSON.parse(raw);
+        const res = await apiCall("POST", "/api/opponent-profile/load", { profile: parsed });
+        if (res.state) {
+          renderState(res.state);
+        }
+      } catch (err) {
+        showError(err.message);
+      }
+    }
+
+    function selectDecision(decisionId) {
+      selectedDecisionId = decisionId;
+      if (!currentState) return;
+      const found = (currentState.decisions || []).find((d) => d.decision_id === decisionId);
+      if (found) {
+        renderInspector(found);
+        renderDecisionTimeline(currentState.decisions || []);
+      }
+    }
+
+    function renderDecisionTimeline(decisions) {
+      const container = document.getElementById("decision-timeline");
+      document.getElementById("decision-count").textContent = `${decisions.length} decisions`;
+      if (decisions.length === 0) {
+        container.innerHTML = `<div class="note-box">No decisions recorded in this match yet.</div>`;
+        return;
+      }
+
+      container.innerHTML = decisions
+        .map((d) => {
+          const isSelected = d.decision_id === selectedDecisionId;
+          const tierTag = d.telemetry && d.telemetry.lookup_tier
+            ? ` [${d.telemetry.lookup_tier}]`
+            : "";
+          return `
+            <div
+              class="feed-item clickable ${isSelected ? "selected-decision" : ""}"
+              onclick="selectDecision(${d.decision_id})"
+            >
+              <span>
+                <strong>H#${d.hand_number} ${d.street.toUpperCase()}</strong> —
+                ${d.chosen_action.text}
+                <em style="color:var(--text-muted);font-size:11px;">(${d.agent_name}${tierTag})</em>
+              </span>
+              <span class="feed-idx">#${d.decision_id}</span>
+            </div>
+          `;
+        })
+        .join("");
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function renderState(state) {
+      currentState = state;
+      document.getElementById("hdr-hand").textContent = state.hand_number;
+      document.getElementById("hdr-completed").textContent = state.hands_completed;
+      document.getElementById("hdr-seed").textContent = state.config.seed;
+
+      const modeEl = document.getElementById("hdr-mode");
+      modeEl.textContent = state.has_human_player ? "HUMAN VS AGENT" : "BOT VS BOT";
+
+      const statusEl = document.getElementById("hdr-status");
+      statusEl.textContent = state.status.replace("_", " ");
+      statusEl.className = `badge status-${state.status}`;
+
+      document.getElementById("table-street").textContent = state.street;
+      document.getElementById("table-pot").textContent = `${state.pot} chips`;
+      document.getElementById("footer-turn").textContent = state.current_player || "—";
+
+      const s1 = state.seats[0];
+      const s2 = state.seats[1];
+      document.getElementById("footer-score").textContent =
+        `${s1.name}: ${s1.hands_won} | ${s2.name}: ${s2.hands_won} (Ties: ${state.hand_ties})`;
+
+      renderSeat(s1, 1);
+      renderSeat(s2, 2);
+
+      const boardSlots = [];
+      for (let i = 0; i < 5; i++) {
+        boardSlots.push(renderCard(state.community_cards[i] || null));
+      }
+      document.getElementById("board-cards").innerHTML = boardSlots.join("");
+
+      const latestEl = document.getElementById("latest-action-banner");
+      if (state.action_log.length > 0) {
+        latestEl.textContent = state.action_log[state.action_log.length - 1].text;
+      } else {
+        latestEl.innerHTML = `Click <strong>Start Hand</strong> to deal a hand.`;
+      }
+
+      renderHumanControls(state.human_controls);
+      renderEquityPanel(state.equity_panel);
+      renderMatchStats(state.match_statistics, state.seats);
+      renderOpponentIntelligence(state.opponent_intelligence);
+
+      // Update Inspector selection (default to latest AI decision if none manually selected)
+      const decisions = state.decisions || [];
+      if (
+        selectedDecisionId === null ||
+        !decisions.some((d) => d.decision_id === selectedDecisionId)
+      ) {
+        if (state.latest_ai_decision) {
+          selectedDecisionId = state.latest_ai_decision.decision_id;
+        } else if (decisions.length > 0) {
+          selectedDecisionId = decisions[decisions.length - 1].decision_id;
+        } else {
+          selectedDecisionId = null;
+        }
+      }
+      const activeDecision = decisions.find((d) => d.decision_id === selectedDecisionId) || state.latest_ai_decision;
+      renderInspector(activeDecision);
+      renderDecisionTimeline(decisions);
+
+      // Render chronological action log
+      const feedEl = document.getElementById("action-feed");
+      document.getElementById("log-count").textContent = `${state.action_log.length} events`;
+      feedEl.innerHTML = state.action_log
+        .map(
+          (item) => `
+          <div
+            class="feed-item type-${item.type} ${item.decision_id ? "clickable" : ""}"
+            ${item.decision_id ? `onclick="selectDecision(${item.decision_id})"` : ""}
+          >
+            <span>${item.text}</span>
+            <span class="feed-idx">#${item.index}</span>
+          </div>
+        `
+        )
+        .join("");
+      feedEl.scrollTop = feedEl.scrollHeight;
+
+      const activeHand = state.status === "running" || state.status === "paused";
+      const isHumanTurn = state.human_controls && state.human_controls.is_human_turn;
+      document.getElementById("btn-step").disabled = !activeHand || state.hand_complete || isHumanTurn;
+      document.getElementById("btn-pause").disabled = state.status !== "running";
+      document.getElementById("btn-resume").disabled = state.status !== "paused";
+      document.getElementById("btn-newhand").disabled = activeHand && !state.hand_complete;
+
+      schedulePlayback();
+    }
+
+    function onSpeedInput(val) {
+      document.getElementById("speed-label").textContent = `${val} ms / action`;
+    }
+
+    function schedulePlayback() {
+      if (playbackTimer) {
+        clearTimeout(playbackTimer);
+        playbackTimer = null;
+      }
+      if (
+        currentState &&
+        !currentState.has_human_player &&
+        currentState.status === "running" &&
+        !currentState.hand_complete
+      ) {
+        const delay = Number(document.getElementById("input-speed").value) || 800;
+        playbackTimer = setTimeout(async () => {
+          if (
+            currentState &&
+            !currentState.has_human_player &&
+            currentState.status === "running" &&
+            !currentState.hand_complete &&
+            !isRequestInFlight
+          ) {
+            await stepAction();
+          }
+        }, delay);
+      }
+    }
+
+    async function applyQuickPreset(preset) {
+      const s1Name = document.getElementById("input-seat1-name");
+      const s2Name = document.getElementById("input-seat2-name");
+      const s1Agent = document.getElementById("select-seat1-agent");
+      const s2Agent = document.getElementById("select-seat2-agent");
+
+      if (preset === "human_s1") {
+        s1Name.value = "Hero (You)";
+        s1Agent.value = "human";
+        if (s2Agent.value === "human") s2Agent.value = "mccfr";
+        s2Name.value = "PokerLab AI";
+      } else if (preset === "human_s2") {
+        s1Name.value = "PokerLab AI";
+        if (s1Agent.value === "human") s1Agent.value = "mccfr";
+        s2Name.value = "Hero (You)";
+        s2Agent.value = "human";
+      } else if (preset === "human_vs_harvey") {
+        s1Name.value = "Hero (You)";
+        s1Agent.value = "human";
+        s2Name.value = "HarveySpecter";
+        s2Agent.value = "harvey";
+      } else if (preset === "harvey_vs_mccfr") {
+        s1Name.value = "HarveySpecter";
+        s1Agent.value = "harvey";
+        s2Name.value = "Baseline MCCFR";
+        s2Agent.value = "mccfr";
+      } else {
+        s1Name.value = "Seat 1";
+        s2Name.value = "Seat 2";
+        if (s1Agent.value === "human") s1Agent.value = "heuristic";
+        if (s2Agent.value === "human") s2Agent.value = "equity";
+      }
+      await resetSession();
+    }
+
+    function readSetupPayload() {
+      return {
+        seat1_name: document.getElementById("input-seat1-name").value,
+        seat2_name: document.getElementById("input-seat2-name").value,
+        seat1_agent: document.getElementById("select-seat1-agent").value,
+        seat2_agent: document.getElementById("select-seat2-agent").value,
+        starting_stack: Number(document.getElementById("input-stack").value),
+        small_blind: Number(document.getElementById("input-sb").value),
+        big_blind: Number(document.getElementById("input-bb").value),
+        seed: Number(document.getElementById("input-seed").value),
+        playback_speed_ms: Number(document.getElementById("input-speed").value),
+        reveal_mode: document.getElementById("select-reveal").value,
+        human_equity_enabled: document.getElementById("chk-human-equity").checked,
+      };
+    }
+
+    function hasUnappliedIdleSetup() {
+      if (!currentState || currentState.hand_number !== 0) return false;
+      const cfg = currentState.config;
+      const form = readSetupPayload();
+      return (
+        form.seat1_name.trim() !== cfg.seat1_name ||
+        form.seat2_name.trim() !== cfg.seat2_name ||
+        form.seat1_agent !== cfg.seat1_agent ||
+        form.seat2_agent !== cfg.seat2_agent ||
+        form.starting_stack !== cfg.starting_stack ||
+        form.small_blind !== cfg.small_blind ||
+        form.big_blind !== cfg.big_blind ||
+        form.seed !== cfg.seed
+      );
+    }
+
+    async function startHand() {
+      if (isRequestInFlight) return;
+      isRequestInFlight = true;
+      showError(null);
+      try {
+        if (hasUnappliedIdleSetup()) {
+          await apiCall("POST", "/api/reset", readSetupPayload());
+        }
+        const state = await apiCall("POST", "/api/start", { auto_rebuy: true });
+        if (state.latest_ai_decision) {
+          selectedDecisionId = state.latest_ai_decision.decision_id;
+        }
+        isRequestInFlight = false;
+        renderState(state);
+      } catch (err) {
+        showError(err.message);
+      } finally {
+        isRequestInFlight = false;
+        if (currentState && currentState.human_controls) {
+          renderHumanControls(currentState.human_controls);
+        }
+      }
+    }
+
+    async function newHand() {
+      await startHand();
+    }
+
+    async function submitHumanAction(actionType, amount = null) {
+      if (isRequestInFlight || !currentState) return;
+      isRequestInFlight = true;
+      showError(null);
+      renderHumanControls(currentState.human_controls);
+      try {
+        const payload = {
+          action_type: actionType,
+          amount: amount,
+          expected_hand_number: currentState.hand_number,
+          expected_step_count: currentState.step_count,
+        };
+        const state = await apiCall("POST", "/api/human/action", payload);
+        if (state.latest_ai_decision) {
+          selectedDecisionId = state.latest_ai_decision.decision_id;
+        }
+        isRequestInFlight = false;
+        renderState(state);
+      } catch (err) {
+        showError(err.message);
+      } finally {
+        isRequestInFlight = false;
+        if (currentState && currentState.human_controls) {
+          renderHumanControls(currentState.human_controls);
+        }
+      }
+    }
+
+    async function submitSizedHumanAction() {
+      if (!currentState || !currentState.human_controls) return;
+      const mode = currentState.human_controls.sizing_mode;
+      if (!mode) return;
+      const amount = Number(document.getElementById("input-bet-number").value);
+      await submitHumanAction(mode, amount);
+    }
+
+    async function stepAction() {
+      if (isRequestInFlight) return;
+      isRequestInFlight = true;
+      showError(null);
+      try {
+        const state = await apiCall("POST", "/api/step");
+        if (state.latest_ai_decision) {
+          selectedDecisionId = state.latest_ai_decision.decision_id;
+        }
+        isRequestInFlight = false;
+        renderState(state);
+      } catch (err) {
+        showError(err.message);
+      } finally {
+        isRequestInFlight = false;
+        if (currentState && currentState.human_controls) {
+          renderHumanControls(currentState.human_controls);
+        }
+      }
+    }
+
+    async function pauseGame() {
+      if (isRequestInFlight) return;
+      isRequestInFlight = true;
+      showError(null);
+      try {
+        const state = await apiCall("POST", "/api/pause");
+        isRequestInFlight = false;
+        renderState(state);
+      } catch (err) {
+        showError(err.message);
+      } finally {
+        isRequestInFlight = false;
+        if (currentState && currentState.human_controls) {
+          renderHumanControls(currentState.human_controls);
+        }
+      }
+    }
+
+    async function resumeGame() {
+      if (isRequestInFlight) return;
+      isRequestInFlight = true;
+      showError(null);
+      try {
+        const state = await apiCall("POST", "/api/resume");
+        isRequestInFlight = false;
+        renderState(state);
+      } catch (err) {
+        showError(err.message);
+      } finally {
+        isRequestInFlight = false;
+        if (currentState && currentState.human_controls) {
+          renderHumanControls(currentState.human_controls);
+        }
+      }
+    }
+
+    async function saveLiveSettings() {
+      try {
+        const speed = Number(document.getElementById("input-speed").value);
+        const reveal = document.getElementById("select-reveal").value;
+        const eqEnabled = document.getElementById("chk-human-equity").checked;
+        const s1Agent = document.getElementById("select-seat1-agent").value;
+        const s2Agent = document.getElementById("select-seat2-agent").value;
+        const state = await apiCall("POST", "/api/settings", {
+          playback_speed_ms: speed,
+          reveal_mode: reveal,
+          human_equity_enabled: eqEnabled,
+          seat1_agent: s1Agent,
+          seat2_agent: s2Agent,
+        });
+        renderState(state);
+      } catch (err) {
+        showError(err.message);
+      }
+    }
+
+    async function resetSession() {
+      if (isRequestInFlight) return;
+      isRequestInFlight = true;
+      showError(null);
+      try {
+        selectedDecisionId = null;
+        const payload = readSetupPayload();
+        const state = await apiCall("POST", "/api/reset", payload);
+        isRequestInFlight = false;
+        renderState(state);
+      } catch (err) {
+        showError(err.message);
+      } finally {
+        isRequestInFlight = false;
+        if (currentState && currentState.human_controls) {
+          renderHumanControls(currentState.human_controls);
+        }
+      }
+    }
+
+    async function initArena() {
+      try {
+        const catalogResp = await apiCall("GET", "/api/agents");
+        const compatible = catalogResp.agents.filter((a) => a.compatible);
+        const s1Select = document.getElementById("select-seat1-agent");
+        const s2Select = document.getElementById("select-seat2-agent");
+        s1Select.innerHTML = compatible
+          .map((a) => `<option value="${a.id}">${a.name}</option>`)
+          .join("");
+        s2Select.innerHTML = compatible
+          .map((a) => `<option value="${a.id}">${a.name}</option>`)
+          .join("");
+
+        const compatEl = document.getElementById("compat-list");
+        compatEl.innerHTML = catalogResp.agents
+          .map(
+            (a) => `
+            <div class="kv-box">
+              <strong style="color:${a.compatible ? "#4ade80" : "#f87171"}">
+                ${a.compatible ? "✓" : "✕"} ${a.name}
+              </strong>
+              <span style="color:#94a5be;text-transform:none;margin-top:2px;">
+                ${a.compatible ? a.description : a.incompatibility_reason}
+              </span>
+            </div>
+          `
+          )
+          .join("");
+
+        const state = await apiCall("GET", "/api/state");
+        s1Select.value = state.config.seat1_agent;
+        s2Select.value = state.config.seat2_agent;
+        document.getElementById("input-seat1-name").value = state.config.seat1_name;
+        document.getElementById("input-seat2-name").value = state.config.seat2_name;
+        document.getElementById("select-reveal").value = state.config.reveal_mode;
+        document.getElementById("input-speed").value = state.config.playback_speed_ms;
+        document.getElementById("chk-human-equity").checked = Boolean(state.config.human_equity_enabled);
+        onSpeedInput(state.config.playback_speed_ms);
+        renderState(state);
+      } catch (err) {
+        showError(err.message);
+      }
+    }
+
+    window.addEventListener("DOMContentLoaded", initArena);
+  </script>
+</body>
+</html>
